@@ -1,0 +1,14 @@
+{{- if .Values.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kubesight.fullname" . }}-grafana-dashboard
+  namespace: {{ .Values.grafanaDashboard.namespace | default .Release.Namespace }}
+  labels:
+    grafana_dashboard: "1"
+    {{- include "kubesight.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana-dashboard
+data:
+  kubesight-production-dashboard.json: |
+{{ .Files.Get "grafana-dashboard.json" | indent 4 }}
+{{- end }}

@@ -1,0 +1,271 @@
+# Default values for kubesight.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  registry: DockerHub
+  repository: kubesight
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+resources: {}
+
+# Monitoring configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+  prometheusRule:
+    enabled: false
+
+# Grafana Dashboard configuration
+grafanaDashboard:
+  enabled: true
+  namespace: monitoring  # Namespace where Grafana is installed
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Common environment variables for all components
+common:
+  VERBOSE: "false"
+  VERSION: "1.0.0"
+  COMMIT_SHA: "local"
+  ENVIRONMENT: "development"
+
+# Secret values
+secret:
+  JWT_SECRET: "change-me"
+  REDIS_PASSWORD: "redis-password"
+
+# Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # Additional metrics can be added here
+
+# Configuration for each component
+redis:
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    # -- Set to true if you want to use persistence
+    # -- If false, a emptyDir volume is used
+    # -- If true, a PVC is created
+    # -- Size of the persistence volume
+    size: 1Gi
+    # -- Storage class of the PVC
+    # -- If not set, the default storage class is used
+    storageClass: ""
+    # -- Existing PVC to use
+    # -- If set, persistence.enabled must be false
+    existingClaim: ""
+
+api:
+  image:
+    repository: kubesight/api
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 5000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env: []
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    startup:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 30
+  lifecycle:
+    enabled: false
+    preStop: {}
+    postStart: {}
+
+frontend:
+  image:
+    repository: kubesight/frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  service:
+    port: 5000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env: []
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    startup:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 30
+  lifecycle:
+    enabled: false
+    preStop: {}
+    postStart: {}
+
+apm:
+  enabled: false
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # kubernetes.io/ingress.class: nginx
+  # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+  backend:
+    serviceName: frontend
+    servicePort: 5000
+  # - secretName: chart-example-tls
+  #   hosts:
+  #     - chart-example.local
+
+# NetworkPolicy configuration
+networkPolicy:
+  enabled: false
+
+# Pod anti-affinity configuration
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - kubesight
+        topologyKey: kubernetes.io/hostname
+
+# PodDisruptionBudget configuration
+pdb:
+  enabled: true
+  minAvailable: 1
+  # maxUnavailable: 1   # alternative
+
+# Topology spread constraints configuration
+topologySpreadConstraints:
+  enabled: true
+  maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway
+  labelSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubesight
+
+# Deployment strategy configuration
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 25%
+    maxSurge: 25%
+
+# RBAC configuration
+rbac:
+  # Specifies whether RBAC resources should be created
+  create: true
+
+# PriorityClass configuration
+priorityClassName: ""
+# DNS configuration
+dnsPolicy: ""
+dnsConfig: {}
+
+# Init containers
+initContainers: []
+
+# Host aliases
+hostAliases: []
+
+# Termination grace period
+terminationGracePeriodSeconds: 30
+# Test connection configuration
+testConnection:
+  enabled: true

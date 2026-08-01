@@ -1,0 +1,43 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kubesight.fullname" . }}-rules
+  labels:
+    {{- include "kubesight.labels" . | nindent 4 }}
+spec:
+  groups:
+  - name: kubesight.rules
+    rules:
+    - alert: HighCPUUsage
+      expr: |
+        100 * (sum by (pod, container) (rate(container_cpu_user_seconds_total{pod=~".*",container!=""}[1m]))
+               /
+               sum by (pod, container) (kube_pod_container_resource_limits_cpu_cores{pod=~".*",container!=""})) > 80
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage detected"
+        description: "CPU usage is above 80% for more than 5 minutes."
+    - alert: HighMemoryUsage
+      expr: |
+        100 * (sum by (pod, container) (container_memory_working_set_bytes{pod=~".*",container!=""})
+               /
+               sum by (pod, container) (kube_pod_container_resource_limits_memory_bytes{pod=~".*",container!=""})) > 80
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage detected"
+        description: "Memory usage is above 80% for more than 5 minutes."
+    - alert: PodRestarts
+      expr: |
+        increase(kube_pod_container_status_restarts_total{pod=~".*"}[5m]) > 0
+      for: 0m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Pod {{ .Release.Name }} has restarted"
+        description: "The pod has restarted, which may indicate instability."
+{{- end }}

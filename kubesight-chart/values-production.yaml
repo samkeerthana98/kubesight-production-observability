@@ -1,0 +1,267 @@
+# Production values for kubesight chart
+replicaCount: 3
+
+image:
+  registry: DockerHub
+  repository: kubesight
+  pullIfNotPresent: IfNotPresent
+  tag: "1.0.0"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+# Monitoring configuration
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+  prometheusRule:
+    enabled: true
+
+# Grafana Dashboard configuration
+grafanaDashboard:
+  enabled: true
+  namespace: monitoring  # Namespace where Grafana is installed
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - kubesight
+        topologyKey: kubernetes.io/hostname
+
+# Common environment variables for all components
+common:
+  VERBOSE: "false"
+  VERSION: "1.0.0"
+  COMMIT_SHA: "prod"
+  ENVIRONMENT: "production"
+
+# Secret values
+secret:
+  JWT_SECRET: "change-me-immediately"
+  REDIS_PASSWORD: "strong-password-here"
+
+# Autoscaling configuration
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# Configuration for each component
+redis:
+  image:
+    repository: redis
+    tag: "7-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 6379
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+    existingClaim: ""
+
+api:
+  image:
+    repository: kubesight/api
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    port: 5000
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  env: []
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    startup:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 30
+  lifecycle:
+    enabled: false
+    preStop: {}
+    postStart: {}
+
+frontend:
+  image:
+    repository: kubesight/frontend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    port: 5000
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  env: []
+  probes:
+    liveness:
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    readiness:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 3
+    startup:
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 1
+      successThreshold: 1
+      failureThreshold: 30
+  lifecycle:
+    enabled: false
+    preStop: {}
+    postStart: {}
+
+apm:
+  enabled: false
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: kubesight.example.com
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls:
+    - secretId: kubesight-tls
+      hosts:
+        - kubesight.example.com
+
+# NetworkPolicy configuration
+networkPolicy:
+  enabled: true
+
+# PodDisruptionBudget configuration
+pdb:
+  enabled: true
+  minAvailable: 2
+
+# Topology spread constraints configuration
+topologySpreadConstraints:
+  enabled: true
+  maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway
+  labelSelector:
+    matchLabels:
+      app.kubernetes.io/name: kubesight
+
+# Deployment strategy configuration
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 25%
+    maxSurge: 25%
+
+# RBAC configuration
+rbac:
+  create: true
+
+# PriorityClass configuration
+priorityClassName: "high-priority"
+
+# DNS configuration
+dnsPolicy: "ClusterFirst"
+dnsConfig:
+  nameservers:
+    - "1.1.1.1"
+  searches:
+    - "mydomain.svc.cluster.local"
+  options:
+    - name: "ndots"
+      value: "2"
+
+# Init containers
+initContainers:
+  - name: init-db
+    image: busybox
+    command: ['sh', '-c', 'echo "Initializing database" && sleep 1']
+
+# Host aliases
+hostAliases:
+  - ip: "127.0.0.1"
+    hostnames:
+      - "foo.local"
+      - "bar.local"
+
+# Termination grace period
+terminationGracePeriodSeconds: 30
+
+# Test connection configuration
+testConnection:
+  enabled: false

@@ -1,0 +1,20 @@
+{{- if .Values.testConnection.enabled }}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "kubesight.fullname" . }}-test-connection
+  labels:
+    {{- include "kubesight.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  containers:
+    - name: wget
+      image: appropriate/curl
+      command: ['wget']
+      args:
+        - '--no-proxy'
+        - '--timeout=5'
+        - {{ include "kubesight.fullname" . }}-frontend:{{ .Values.frontend.service.port }}
+  restartPolicy: Never
+{{- end }}

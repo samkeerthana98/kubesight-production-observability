@@ -1,0 +1,42 @@
+suite: ingress
+release:
+  name: test-release
+values:
+  - ingress-values.yaml
+templates:
+  - ingress.yaml
+tests:
+  - it: should be an Ingress
+    asserts:
+      - equal:
+          path: kind
+          value: Ingress
+  - it: should have the correct name
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-release-kubesight
+  - it: should have the correct annotations
+    asserts:
+      - exists:
+          path: metadata.annotations
+  - it: should have the correct host
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: kubesight.example.com
+  - it: should have the correct path
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
+  - it: should have the correct path type
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: ImplementationSpecific
+  - it: should have the correct TLS secret
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: kubesight-tls

@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubesight.fullname" . }}-api
+  labels:
+    {{- include "kubesight.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.priorityClassName }}
+  priorityClassName: {{ .Values.priorityClassName }}
+  {{- end }}
+  {{- if .Values.dnsPolicy }}
+  dnsPolicy: {{ .Values.dnsPolicy }}
+  {{- end }}
+  {{- with .Values.dnsConfig }}
+  dnsConfig:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.deploymentStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "kubesight.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "kubesight.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      annotations:
+        checksum/config: {{ include "kubesight.includeConfigMap" . }}
+        checksum/secret: {{ include "kubesight.includeSecret" . }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubesight.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: api
+          image: "{{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}"
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          {{- if .Values.api.lifecycle.enabled }}
+          lifecycle:
+            {{- toYaml .Values.api.lifecycle | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.service.port }}
+              protocol: TCP
+          env:
+          {{- range .Values.api.env }}
+          - name: {{ .name }}
+            value: {{ .value | quote }}
+          {{- end }}
+          - name: REDIS_HOST
+            value: {{ printf "%s-redis" (include "kubesight.fullname" $) | quote }}
+          - name: REDIS_PORT
+            value: {{ .Values.redis.service.port | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kubesight.fullname" . }}-config
+            - secretRef:
+                name: {{ include "kubesight.fullname" . }}-secret
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.service.port }}
+            initialDelaySeconds: {{ .Values.api.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.probes.liveness.timeoutSeconds }}
+            successThreshold: {{ .Values.api.probes.liveness.successThreshold }}
+            failureThreshold: {{ .Values.api.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.service.port }}
+            initialDelaySeconds: {{ .Values.api.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.probes.readiness.timeoutSeconds }}
+            successThreshold: {{ .Values.api.probes.readiness.successThreshold }}
+            failureThreshold: {{ .Values.api.probes.readiness.failureThreshold }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.api.service.port }}
+            initialDelaySeconds: {{ .Values.api.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.api.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.api.probes.startup.timeoutSeconds }}
+            successThreshold: {{ .Values.api.probes.startup.successThreshold }}
+            failureThreshold: {{ .Values.api.probes.startup.failureThreshold }}
+{{- if .Values.apm.enabled }}
+          # APM agent configuration (if enabled)
+          # This is commented out as it's not required for basic functionality
+          # - name: ELASTIC_APM_SERVER_URL
+          #   value: "http://apm-server:8200"
+          # - name: ELASTIC_APM_SERVICE_NAME
+          #   value: "kubesight-api"
+          # - name: ELASTIC_APM_SECRET_TOKEN
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: apm-secret
+          #       key: secret-token
+{{- end }}
+{{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- if .Values.topologySpreadConstraints.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpreadConstraints.maxSkew }}
+          topologyKey: {{ .Values.topologySpreadConstraints.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpreadConstraints.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- toYaml .Values.topologySpreadConstraints.labelSelector.matchLabels | nindent 14 }}
+{{- end }}

@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kubesight.fullname" . }}-frontend
+  labels:
+    {{- include "kubesight.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.priorityClassName }}
+  priorityClassName: "{{ .Values.priorityClassName }}"
+  {{- end }}
+  strategy:
+    {{- toYaml .Values.deploymentStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "kubesight.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: frontend
+  template:
+    metadata:
+      labels:
+        {{- include "kubesight.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: frontend
+      annotations:
+        checksum/config: {{ include "kubesight.includeConfigMap" . }}
+        checksum/secret: {{ include "kubesight.includeSecret" . }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "kubesight.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: frontend
+          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          {{- if .Values.frontend.lifecycle.enabled }}
+          lifecycle:
+            {{- toYaml .Values.frontend.lifecycle | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.service.port }}
+              protocol: TCP
+          env:
+          {{- range .Values.frontend.env }}
+          - name: {{ .name }}
+            value: {{ .value | quote }}
+          {{- end }}
+          - name: API_SERVICE_HOST
+            value: {{ printf "%s-api" (include "kubesight.fullname" $) | quote }}
+          - name: API_SERVICE_PORT
+            value: {{ .Values.api.service.port | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "kubesight.fullname" . }}-config
+            - secretRef:
+                name: {{ include "kubesight.fullname" . }}-secret
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.frontend.service.port }}
+            initialDelaySeconds: {{ .Values.frontend.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.probes.liveness.timeoutSeconds }}
+            successThreshold: {{ .Values.frontend.probes.liveness.successThreshold }}
+            failureThreshold: {{ .Values.frontend.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.frontend.service.port }}
+            initialDelaySeconds: {{ .Values.frontend.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.probes.readiness.timeoutSeconds }}
+            successThreshold: {{ .Values.frontend.probes.readiness.successThreshold }}
+            failureThreshold: {{ .Values.frontend.probes.readiness.failureThreshold }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.frontend.service.port }}
+            initialDelaySeconds: {{ .Values.frontend.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.probes.startup.timeoutSeconds }}
+            successThreshold: {{ .Values.frontend.probes.startup.successThreshold }}
+            failureThreshold: {{ .Values.frontend.probes.startup.failureThreshold }}
+{{- if .Values.apm.enabled }}
+          # APM agent configuration (if enabled)
+          # This is commented out as it's not required for basic functionality
+          # - name: ELASTIC_APM_SERVER_URL
+          #   value: "http://apm-server:8200"
+          # - name: ELASTIC_APM_SERVICE_NAME
+          #   value: "kubesight-frontend"
+          # - name: ELASTIC_APM_SECRET_TOKEN
+          #   valueFrom:
+          #     secretKeyRef:
+          #       name: apm-secret
+          #       key: secret-token
+{{- end }}
+{{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- if .Values.topologySpreadConstraints.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpreadConstraints.maxSkew }}
+          topologyKey: {{ .Values.topologySpreadConstraints.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpreadConstraints.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- toYaml .Values.topologySpreadConstraints.labelSelector.matchLabels | nindent 14 }}
+{{- end }}

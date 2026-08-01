@@ -1,0 +1,18 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kubesight.fullname" . }}-api
+  labels:
+    {{- include "kubesight.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: {{ .Values.api.service.port }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "kubesight.selectorLabels" . | nindent 6 }}
+    {{- "app.kubernetes.io/component: api" | nindent 6 }}
