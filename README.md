@@ -1,9 +1,8 @@
 # KubeSight – Production Kubernetes Observability Platform
 
-> A production-grade, cloud-native observability platform built on Kubernetes.  
-> Demonstrates real-world DevOps practices: Helm packaging, Prometheus metrics, Grafana dashboards, GitOps-style configuration, and multi-environment deployments.
+> A production-grade Kubernetes observability platform demonstrating Helm packaging, Prometheus metrics, Grafana dashboards, and multi-environment deployments.
 
-[![Helm Lint](https://github.com/YOUR_USERNAME/kubesight-production-observability/actions/workflows/helm-lint.yml/badge.svg)](https://github.com/YOUR_USERNAME/kubesight-production-observability/actions/workflows/helm-lint.yml)
+[![Helm Lint](https://github.com/samkeerthana98/kubesight-production-observability/actions/workflows/helm-lint.yml/badge.svg)](https://github.com/samkeerthana98/kubesight-production-observability/actions/workflows/helm-lint.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 ![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28+-326CE5?logo=kubernetes&logoColor=white)
 ![Helm](https://img.shields.io/badge/Helm-3.x-0F1689?logo=helm&logoColor=white)
@@ -12,42 +11,23 @@
 
 ---
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Technology Stack](#technology-stack)
-- [Project Structure](#project-structure)
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Quickstart – Local Development](#quickstart--local-development)
-- [Deploying with Helm](#deploying-with-helm)
-- [Monitoring](#monitoring)
-- [Grafana Dashboard](#grafana-dashboard)
-- [Prometheus Metrics](#prometheus-metrics)
-- [Multi-Environment Configuration](#multi-environment-configuration)
-- [Future Improvements](#future-improvements)
-- [Resume Highlights](#resume-highlights)
-- [Lessons Learned](#lessons-learned)
-- [License](#license)
-- [Contributing](#contributing)
-
----
-
 ## Overview
 
-KubeSight is a **production Kubernetes observability platform** built from scratch to demonstrate end-to-end DevOps engineering skills. It consists of a Python Flask microservices application (API + Frontend) backed by Redis, fully packaged as a Helm chart, and integrated with the **kube-prometheus-stack** (Prometheus Operator + Grafana) for real-time observability.
+KubeSight is a Kubernetes observability platform built from scratch to demonstrate end-to-end DevOps skills. It consists of a Python Flask microservices application (API + Frontend) backed by Redis, packaged as a production Helm chart, and integrated with **kube-prometheus-stack** (Prometheus + Grafana) for real-time observability.
 
-Key production patterns implemented:
+What is actually implemented:
 
-- **Zero-downtime deployments** via RollingUpdate strategy
-- **High availability** with Pod Disruption Budgets and topology spread constraints
-- **Auto-scaling** with Horizontal Pod Autoscaler
-- **Structured JSON logging** with request tracing (X-Request-ID)
-- **Custom Prometheus metrics** with ServiceMonitor scraping
-- **Automated alerting** via PrometheusRules (CPU, memory, pod restarts)
-- **Grafana dashboard auto-provisioning** via ConfigMap sidecar
-- **Security hardening** with non-root containers, NetworkPolicies, RBAC
+- **RollingUpdate deployments** with configurable maxSurge/maxUnavailable
+- **Pod Disruption Budgets** on API, Frontend, and Redis
+- **Horizontal Pod Autoscaler** (CPU-based) for API and Frontend
+- **Custom Prometheus metrics** (Counters, Histograms) exposed from both services
+- **ServiceMonitor CRDs** for automatic Prometheus scraping
+- **PrometheusRule alerts** — HighCPU, HighMemory, PodRestarts (enabled in production)
+- **Grafana dashboard auto-provisioning** via ConfigMap + Grafana sidecar
+- **NetworkPolicy** restricting pod-to-pod traffic (enabled in production)
+- **Non-root containers** (UID 1000) with `runAsNonRoot: true`
+- **JSON-structured logging** with per-request IDs on both services
+- **Failure simulation endpoints** on the API for manual alert testing
 
 ---
 
@@ -57,35 +37,33 @@ Key production patterns implemented:
 graph TB
     subgraph "External"
         User["👤 User / Browser"]
-        Ingress["🌐 NGINX Ingress"]
+        Ingress["🌐 NGINX Ingress\n(production only)"]
     end
 
-    subgraph "Application Tier"
-        Frontend["🖥️ Frontend Service\n(Flask / Gunicorn)\nPort 5000"]
+    subgraph "Application Tier – namespace: kubesight"
+        Frontend["🖥️ Frontend\n(Flask / Gunicorn)\nPort 5000"]
         API["⚙️ API Service\n(Flask / Gunicorn)\nPort 5000"]
-        Redis["🗄️ Redis\n(Cache / Counter)\nPort 6379"]
+        Redis["🗄️ Redis 7-Alpine\nPort 6379 / PVC"]
     end
 
-    subgraph "Observability Stack"
+    subgraph "Observability – namespace: monitoring"
         Prometheus["📊 Prometheus\n(kube-prometheus-stack)"]
-        Grafana["📈 Grafana\nDashboard"]
-        AlertManager["🔔 AlertManager"]
-        SMFrontend["ServiceMonitor\n(frontend)"]
-        SMApi["ServiceMonitor\n(api)"]
-        PRules["PrometheusRule\n(HighCPU / HighMem /\nPodRestarts)"]
+        Grafana["📈 Grafana\n(dashboard auto-provisioned)"]
+        SMApi["ServiceMonitor – api"]
+        SMFrontend["ServiceMonitor – frontend"]
+        PRules["PrometheusRule\n(HighCPU / HighMemory / PodRestarts)"]
+        GrafanaCM["ConfigMap\n(grafana_dashboard: '1')"]
     end
 
     User -->|HTTP| Ingress
-    Ingress -->|"/"| Frontend
-    Frontend -->|"REST /api"| API
-    API -->|"INCR visits"| Redis
+    Ingress --> Frontend
+    Frontend -->|GET /| API
+    API -->|INCR visits| Redis
 
-    Frontend -->|"/metrics"| SMFrontend
-    API -->|"/metrics"| SMApi
-    SMFrontend -->|scrape| Prometheus
-    SMApi -->|scrape| Prometheus
-    PRules -->|evaluate| Prometheus
-    Prometheus -->|alerts| AlertManager
+    SMApi -->|scrape /metrics 30s| Prometheus
+    SMFrontend -->|scrape /metrics 30s| Prometheus
+    PRules -->|evaluate rules| Prometheus
+    GrafanaCM -->|sidecar auto-provision| Grafana
     Prometheus -->|datasource| Grafana
 ```
 
@@ -96,17 +74,16 @@ graph TB
 | Category | Technology |
 |---|---|
 | **Container Runtime** | Docker |
-| **Orchestration** | Kubernetes (Kind for local, EKS/GKE ready) |
+| **Orchestration** | Kubernetes (Kind for local dev) |
 | **Package Manager** | Helm 3 |
-| **Backend API** | Python 3.11, Flask 2.3, Gunicorn |
-| **Frontend** | Python 3.11, Flask 2.3, Gunicorn |
-| **Cache / Storage** | Redis 7 (Alpine) |
-| **Metrics Collection** | Prometheus (kube-prometheus-stack) |
-| **Visualization** | Grafana 10 |
-| **Alerting** | Prometheus Alertmanager |
+| **API Service** | Python 3.11, Flask 2.3, Gunicorn |
+| **Frontend Service** | Python 3.11, Flask 2.3, Gunicorn |
+| **Cache / Storage** | Redis 7 (Alpine), PVC-backed |
+| **Metrics Collection** | Prometheus via kube-prometheus-stack |
 | **Metrics Library** | prometheus_client (Python) |
-| **CI/CD** | GitHub Actions |
-| **Cloud Ready** | AWS EKS, GKE, AKS |
+| **Visualization** | Grafana 10 (auto-provisioned) |
+| **Helm Validation** | GitHub Actions (helm lint + helm template) |
+| **Local Dev** | Docker Compose |
 
 ---
 
@@ -114,73 +91,40 @@ graph TB
 
 ```
 kubesight-production-observability/
-│
-├── .github/
-│   └── workflows/
-│       └── helm-lint.yml          # CI: Helm lint + template validation
-│
+├── .github/workflows/
+│   └── helm-lint.yml              # Helm lint + template validation (3 envs)
 ├── app/
 │   ├── api/
-│   │   ├── app.py                 # Flask API – metrics, Redis, health endpoints
-│   │   ├── Dockerfile             # Multi-stage, non-root container
-│   │   ├── requirements.txt
-│   │   └── .dockerignore
+│   │   ├── app.py                 # Flask API: metrics, Redis, health, simulate/*
+│   │   ├── Dockerfile             # Non-root (UID 1000), Gunicorn
+│   │   └── requirements.txt
 │   └── frontend/
-│       ├── app.py                 # Flask Frontend – calls API, page view metrics
+│       ├── app.py                 # Flask Frontend: calls API, page view metrics
 │       ├── Dockerfile
-│       ├── requirements.txt
-│       └── .dockerignore
-│
-├── kubesight-chart/               # Production Helm Chart
-│   ├── Chart.yaml                 # Chart metadata v0.1.0
-│   ├── values.yaml                # Default values (development)
-│   ├── values-dev.yaml            # Dev environment overrides
-│   ├── values-production.yaml     # Production overrides (HA, autoscaling)
-│   ├── grafana-dashboard.json     # Grafana dashboard definition
-│   └── templates/
-│       ├── _helpers.tpl           # Helm helper templates
-│       ├── api-deployment.yaml    # API Deployment with probes & security
+│       └── requirements.txt
+├── kubesight-chart/
+│   ├── Chart.yaml                 # v0.1.0
+│   ├── values.yaml                # Default / dev values
+│   ├── values-dev.yaml            # Dev overrides
+│   ├── values-production.yaml     # Production: 3 replicas, HPA, PDB, NetworkPolicy
+│   ├── grafana-dashboard.json     # Dashboard definition (embedded into ConfigMap)
+│   └── templates/                 # 20+ Helm templates
+│       ├── api-deployment.yaml    # Probes, security context, checksum annotations
 │       ├── frontend-deployment.yaml
 │       ├── redis-deployment.yaml
-│       ├── api-service.yaml
-│       ├── frontend-service.yaml
-│       ├── redis-service.yaml
-│       ├── redis-pvc.yaml         # Persistent Volume Claim for Redis
-│       ├── ingress.yaml
-│       ├── configmap.yaml
-│       ├── secret.yaml
-│       ├── serviceaccount.yaml
-│       ├── role.yaml              # RBAC Role
-│       ├── rolebinding.yaml
-│       ├── hpa.yaml               # HorizontalPodAutoscaler
-│       ├── pdb.yaml               # PodDisruptionBudget
-│       ├── networkpolicy.yaml     # Network isolation
-│       ├── servicemonitor.yaml    # Prometheus ServiceMonitors (api + frontend)
-│       ├── prometheusrule.yaml    # Alerting rules
-│       ├── grafana-dashboard-configmap.yaml  # Grafana sidecar auto-provisioning
-│       └── NOTES.txt
-│
-├── kubernetes/                    # Raw Kubernetes manifests (Kind/local)
-│   ├── kind-cluster-config.yaml
-│   ├── namespace/
-│   ├── deployments/
-│   ├── services/
-│   └── ingress/
-│
-├── docs/
-│   ├── Architecture.md
-│   ├── Deployment.md
-│   ├── Monitoring.md
-│   ├── Troubleshooting.md
-│   ├── Metrics.md
-│   └── Dashboard.md
-│
+│       ├── hpa.yaml               # CPU-based HPA for API + Frontend
+│       ├── pdb.yaml               # PDB for API, Frontend, Redis
+│       ├── networkpolicy.yaml     # Ingress rules: frontend→api→redis only
+│       ├── servicemonitor.yaml    # Prometheus scraping CRDs
+│       ├── prometheusrule.yaml    # Alert rules (production)
+│       ├── grafana-dashboard-configmap.yaml
+│       └── ...services, ingress, rbac, secret, configmap
+├── kubernetes/
+│   └── kind-cluster-config.yaml
+├── docs/                          # Architecture, Deployment, Monitoring, Metrics…
 ├── prompts/                       # AI prompts used during development
-├── screenshots/                   # Project screenshots
-├── docker-compose.yml             # Local development
-├── .gitignore
-├── LICENSE
-└── README.md
+├── screenshots/                   # Add after deploying (see screenshots/README.md)
+└── docker-compose.yml
 ```
 
 ---
@@ -188,192 +132,121 @@ kubesight-production-observability/
 ## Features
 
 ### Application
-- **REST API** with `/`, `/health`, `/version`, `/metrics` endpoints
-- **Redis-backed visit counter** with connection health checks
-- **Failure simulation endpoints** (`/simulate/error`, `/simulate/slow`, `/simulate/cpu`, `/simulate/redis-down`) for testing alerting rules
-- **Structured JSON logging** with X-Request-ID propagation across services
-- **Non-root containers** (UID 1000) for security compliance
+
+| Feature | Detail |
+|---|---|
+| API endpoints | `/` (visit counter), `/health`, `/version`, `/metrics` |
+| Frontend endpoints | `/` (HTML page), `/health`, `/version`, `/metrics` |
+| Simulation endpoints (API only) | `/simulate/error`, `/simulate/slow`, `/simulate/cpu`, `/simulate/redis-down` |
+| Redis counter | `INCR visits` on every `GET /` request |
+| JSON logging | Structured JSON logs with per-request IDs on both services |
+| Non-root containers | `runAsUser: 1000`, `runAsNonRoot: true` on all pods |
 
 ### Helm Chart
-- **Full production Helm chart** with 20+ templates
-- **Multi-environment values** (default / dev / production)
-- **HPA** (Horizontal Pod Autoscaler) with CPU-based scaling
-- **PDB** (Pod Disruption Budget) for zero-downtime maintenance
-- **NetworkPolicy** for strict pod-to-pod communication rules
-- **RBAC** with least-privilege Role/RoleBinding/ServiceAccount
-- **Topology spread constraints** for zone-aware scheduling
-- **Rolling update strategy** with configurable maxSurge/maxUnavailable
-- **Startup, liveness, and readiness probes** on all application pods
-- **Helm tests** for service connectivity validation
+
+| Feature | Status |
+|---|---|
+| 20+ templates | ✅ api, frontend, redis (deploy + svc), ingress, hpa, pdb, networkpolicy, serviceaccount, role, rolebinding, configmap, secret, servicemonitor, prometheusrule, grafana-configmap |
+| Multi-env values | ✅ default / dev / production |
+| RollingUpdate strategy | ✅ configurable maxSurge/maxUnavailable |
+| Startup + liveness + readiness probes | ✅ on API and Frontend (hit `/health`) |
+| HPA (CPU) | ✅ API + Frontend, enabled in production |
+| PDB | ✅ API + Frontend + Redis |
+| NetworkPolicy | ✅ frontend→api→redis isolation, enabled in production |
+| Topology spread constraints | ✅ template configurable via values (zone key) |
+| Checksum annotations | ✅ pod restart on ConfigMap/Secret change |
+| Helm tests | ✅ test suite in `kubesight-chart/tests/` |
 
 ### Observability
-- **Custom Prometheus metrics** on both API and Frontend services
-- **ServiceMonitors** for automatic Prometheus scraping via kube-prometheus-stack
-- **PrometheusRules** with three alert rules: HighCPU, HighMemory, PodRestarts
-- **Grafana dashboard auto-provisioning** via ConfigMap and Grafana sidecar
-- **Persistent Redis** with configurable PVC size per environment
 
----
-
-## Screenshots
-
-> See [`screenshots/`](./screenshots/) for a full list of required screenshots.
-
-| Screenshot | Description |
+| Feature | Detail |
 |---|---|
-| ![Grafana Dashboard](screenshots/grafana-dashboard.png) | Grafana production dashboard |
-| ![Prometheus Targets](screenshots/prometheus-targets.png) | Prometheus scrape targets |
-| ![Helm Deploy](screenshots/helm-deploy.png) | Helm deployment output |
-| ![Pods Running](screenshots/pods-running.png) | All pods in Running state |
+| ServiceMonitors | API + Frontend, scrape `/metrics` every 30s |
+| PrometheusRules | HighCPUUsage, HighMemoryUsage, PodRestarts |
+| Grafana dashboard | Auto-provisioned via ConfigMap sidecar, no manual import |
+| Dashboard panels | Request rate, latency (p50/p95/p99), Redis ops, error rate, pod resources |
 
 ---
 
-## Quickstart – Local Development
+## Deployment
 
 ### Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- Docker Desktop
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [Helm 3](https://helm.sh/docs/intro/install/)
-- [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/) (for local Kubernetes)
+- [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/)
 
-### Run with Docker Compose
+### Option A – Docker Compose (local, no Kubernetes)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/kubesight-production-observability.git
+git clone https://github.com/samkeerthana98/kubesight-production-observability.git
 cd kubesight-production-observability
-
 docker compose up --build
 ```
 
-Services will be available at:
-- **Frontend**: http://localhost:5001
-- **API**: http://localhost:5000
-- **Redis**: localhost:6379
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:5001 |
+| API | http://localhost:5000 |
 
----
-
-## Deploying with Helm
-
-### 1. Create a Kind cluster
+### Option B – Kubernetes with Helm
 
 ```bash
+# 1. Create Kind cluster
 kind create cluster --config kubernetes/kind-cluster-config.yaml --name kubesight
-```
 
-### 2. Install kube-prometheus-stack (Prometheus + Grafana)
-
-```bash
+# 2. Install kube-prometheus-stack
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
-
 helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
-  --namespace monitoring \
-  --create-namespace \
+  --namespace monitoring --create-namespace \
   --set grafana.sidecar.dashboards.enabled=true \
   --set grafana.sidecar.dashboards.label=grafana_dashboard
-```
 
-### 3. Deploy KubeSight
-
-```bash
-# Development
+# 3. Deploy KubeSight (dev)
 helm install kubesight ./kubesight-chart \
-  --namespace kubesight \
-  --create-namespace \
+  --namespace kubesight --create-namespace \
   -f ./kubesight-chart/values-dev.yaml
 
-# Production
-helm install kubesight ./kubesight-chart \
-  --namespace kubesight \
-  --create-namespace \
-  -f ./kubesight-chart/values-production.yaml
-```
-
-### 4. Verify the deployment
-
-```bash
+# 4. Verify
 kubectl get pods -n kubesight
-kubectl get servicemonitors -n kubesight
 helm test kubesight -n kubesight
-```
 
-### 5. Access services via port-forward
-
-```bash
-# Frontend
+# 5. Access services
 kubectl port-forward svc/kubesight-frontend 5001:5000 -n kubesight
-
-# Grafana
 kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring
-
-# Prometheus
 kubectl port-forward svc/kube-prometheus-stack-prometheus 9090:9090 -n monitoring
 ```
 
-### Upgrade and Rollback
-
-```bash
-# Upgrade
-helm upgrade kubesight ./kubesight-chart -n kubesight -f ./kubesight-chart/values-production.yaml
-
-# Rollback
-helm rollback kubesight -n kubesight
-```
+Grafana: http://localhost:3000 — credentials `admin / prom-operator`
 
 ---
 
 ## Monitoring
 
-KubeSight integrates with **kube-prometheus-stack** (Prometheus Operator) for full observability.
-
 ### ServiceMonitors
 
-Two `ServiceMonitor` CRDs are deployed to tell Prometheus how to scrape each service:
+Both services expose `/metrics` and are scraped automatically:
 
-- `kubesight-api` – scrapes `GET /metrics` on port `http` every 30s
-- `kubesight-frontend` – scrapes `GET /metrics` on port `http` every 30s
+- `kubesight-api` — every 30s
+- `kubesight-frontend` — every 30s
 
-### PrometheusRules (Alerts)
+The `release: kube-prometheus-stack` label on each ServiceMonitor is required for Prometheus to discover them.
 
-| Alert | Expression | Threshold | Severity |
-|---|---|---|---|
-| HighCPUUsage | `container_cpu_user_seconds_total` rate | > 80% for 5m | warning |
-| HighMemoryUsage | `container_memory_working_set_bytes` | > 80% for 5m | warning |
-| PodRestarts | `kube_pod_container_status_restarts_total` | > 0 in 5m | warning |
+### PrometheusRule Alerts (enabled in production values)
 
-Enable alerts in production:
+| Alert | Condition | Severity |
+|---|---|---|
+| `HighCPUUsage` | CPU > 80% of limit for 5m | warning |
+| `HighMemoryUsage` | Memory working set > 80% of limit for 5m | warning |
+| `PodRestarts` | Restart count increased in last 5m | warning |
 
-```yaml
-# values-production.yaml
-monitoring:
-  prometheusRule:
-    enabled: true
-```
+### Grafana Dashboard
 
----
+Auto-provisioned via a ConfigMap with label `grafana_dashboard: "1"` deployed to the `monitoring` namespace. The Grafana sidecar detects it and loads it automatically.
 
-## Grafana Dashboard
-
-The Grafana dashboard is **auto-provisioned** via a Kubernetes ConfigMap and the Grafana sidecar container. No manual import is required.
-
-The dashboard includes:
-
-- HTTP request rate per service
-- Request latency (p50, p95, p99)
-- Redis operations total
-- Error rate
-- Pod CPU and memory usage
-- Active pod count
-
-**Accessing Grafana:**
-
-```bash
-kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring
-# Default credentials: admin / prom-operator
-```
-
-Open http://localhost:3000 → Dashboards → KubeSight Production Dashboard
+Dashboard panels: HTTP request rate, latency percentiles (p50/p95/p99), Redis operation count, error rate, pod CPU/memory usage.
 
 ---
 
@@ -381,94 +254,71 @@ Open http://localhost:3000 → Dashboards → KubeSight Production Dashboard
 
 ### API Service
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `api_http_requests_total` | Counter | method, endpoint, http_status | Total HTTP requests |
-| `api_http_request_duration_seconds` | Histogram | method, endpoint | Request latency |
-| `redis_operations_total` | Counter | operation, status, key | Redis operations |
+| Metric | Type | Labels |
+|---|---|---|
+| `api_http_requests_total` | Counter | method, endpoint, http_status |
+| `api_http_request_duration_seconds` | Histogram | method, endpoint |
+| `redis_operations_total` | Counter | operation, status, key |
 
 ### Frontend Service
 
-| Metric | Type | Labels | Description |
-|---|---|---|---|
-| `frontend_http_requests_total` | Counter | method, endpoint, http_status | Total HTTP requests |
-| `frontend_http_request_duration_seconds` | Histogram | method, endpoint | Request latency |
-| `frontend_page_views_total` | Counter | page, http_status | Page view tracking |
+| Metric | Type | Labels |
+|---|---|---|
+| `frontend_http_requests_total` | Counter | method, endpoint, http_status |
+| `frontend_http_request_duration_seconds` | Histogram | method, endpoint |
+| `frontend_page_views_total` | Counter | page, http_status |
 
 ---
 
 ## Multi-Environment Configuration
 
-| Feature | Default (Dev) | Production |
+| Feature | Dev | Production |
 |---|---|---|
 | Replicas | 1 | 3 |
-| HPA | Disabled | Enabled (3–10 replicas) |
+| HPA | Disabled | Enabled (3–10, target CPU 70%) |
 | PDB | minAvailable: 1 | minAvailable: 2 |
 | NetworkPolicy | Disabled | Enabled |
 | PrometheusRule | Disabled | Enabled |
-| Redis PVC size | 1Gi | 10Gi |
-| Ingress | Disabled | Enabled (nginx + TLS) |
+| Redis PVC | 1Gi | 10Gi |
+| Ingress | Disabled | Enabled (nginx) |
 | CPU limit | 500m | 1000m |
 | Memory limit | 512Mi | 1Gi |
 
 ---
 
-## Future Improvements
+## Screenshots
 
-- [ ] Push Docker images to AWS ECR / Docker Hub with GitHub Actions
-- [ ] Add Helm chart to GitHub Pages as a Helm repository
-- [ ] Add OpenTelemetry tracing (Jaeger / Tempo integration)
-- [ ] Implement Redis Sentinel or Redis Cluster for HA
-- [ ] Add Slack / PagerDuty integration for AlertManager
-- [ ] Terraform module for EKS cluster provisioning
-- [ ] Add Vault integration for secret management
-- [ ] Implement canary deployments with Argo Rollouts
+Screenshots are not yet included. Deploy the project and capture them following the instructions in [`screenshots/README.md`](./screenshots/README.md).
+
+Required: Grafana dashboard, Prometheus targets (`/targets`), `kubectl get pods` output, Helm deployment output.
 
 ---
 
 ## Resume Highlights
 
-> Use these bullet points directly on your resume or LinkedIn.
-
 - Designed and deployed a **production Kubernetes observability platform** using Helm, Prometheus, and Grafana on a Kind cluster
-- Authored a **20+ template Helm chart** with multi-environment values (dev/production), HPA, PDB, NetworkPolicy, RBAC, and topology spread constraints
+- Authored a **20+ template Helm chart** with multi-environment values (dev/production), HPA, PDB, and NetworkPolicy
 - Implemented **custom Prometheus metrics** (Counters, Histograms) in Python Flask and configured **ServiceMonitor CRDs** for automatic scraping via kube-prometheus-stack
-- Built a **Grafana dashboard** (auto-provisioned via ConfigMap sidecar) showing request rates, latency percentiles, Redis operation health, and pod resource utilization
-- Configured **PrometheusRule alerts** for HighCPU, HighMemory, and PodRestarts with severity labeling for AlertManager routing
-- Implemented **zero-downtime rolling deployments** with startup/liveness/readiness probes, PodDisruptionBudgets, and configurable surge/unavailable ratios
-- Applied **container security hardening**: non-root users (UID 1000), read-only filesystems, NetworkPolicies, and least-privilege RBAC
-- Established **CI/CD with GitHub Actions** to run `helm lint` and `helm template` validation on every pull request
+- Built a **Grafana dashboard** (auto-provisioned via ConfigMap sidecar) displaying request rates, latency percentiles, Redis operation health, and pod resource utilization
+- Configured **PrometheusRule alert rules** for HighCPU, HighMemory, and PodRestarts with severity labels
+- Implemented **zero-downtime rolling deployments** with startup, liveness, and readiness probes, PodDisruptionBudgets, and checksum-based config-change restarts
+- Applied **container security hardening**: non-root users (UID 1000) and NetworkPolicies
+- Added a **GitHub Actions workflow** for automated Helm lint and template validation across all three environment value files on every push
 
 ---
 
-## Lessons Learned
+## Future Improvements
 
-- **Prometheus Operator label matching**: ServiceMonitor labels must match the Prometheus `serviceMonitorSelector` — the `release: kube-prometheus-stack` label is required for autodiscovery
-- **Grafana sidecar provisioning**: The ConfigMap must have the label `grafana_dashboard: "1"` and be in the monitoring namespace for the sidecar to detect it
-- **HPA prerequisites**: Metrics Server must be installed for HPA to function; on Kind clusters this requires an extra manifest
-- **PDB and rolling updates**: Setting both `minAvailable` and `maxUnavailable` simultaneously can cause scheduling deadlocks — choose one
-- **Helm checksum annotations**: Using `sha256sum` of ConfigMap/Secret in pod annotations forces pod restarts on config changes, a subtle but critical production pattern
+- [ ] Push Docker images to ECR / Docker Hub via GitHub Actions
+- [ ] Add OpenTelemetry tracing (Jaeger / Tempo)
+- [ ] Configure AlertManager receivers (Slack / PagerDuty)
+- [ ] Terraform module for EKS cluster provisioning
+- [ ] Add Vault for secret management
+- [ ] Implement canary deployments with Argo Rollouts
+- [ ] Publish Helm chart to GitHub Pages as a chart repository
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
-
----
-
-## Contributing
-
-This is a portfolio project. Issues and suggestions are welcome via GitHub Issues.
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Commit your changes (`git commit -m 'Add your feature'`)
-4. Push to the branch (`git push origin feature/your-feature`)
-5. Open a Pull Request
-
----
-
-<p align="center">
-  Built with ❤️ for the DevOps community.
-</p>
+MIT — see [LICENSE](./LICENSE)
