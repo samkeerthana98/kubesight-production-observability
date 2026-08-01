@@ -69,7 +69,7 @@ kubectl port-forward svc/kube-prometheus-stack-prometheus 9090:9090 -n monitorin
 helm install kubesight ./kubesight-chart \
   --namespace kubesight \
   --create-namespace \
-  -f ./kubesight-chart/values-production.yaml
+  -f ./kubesight-chart/values-dev.yaml
 ```
 
 **What to show**:
@@ -91,56 +91,8 @@ kubectl get pods -n monitoring
 
 **What to show**:
 - All KubeSight pods in `Running` state (API, Frontend, Redis)
-- All monitoring pods in `Running` state (Prometheus, Grafana, AlertManager)
+- All monitoring pods in `Running` state (Prometheus, Grafana)
 - `READY 1/1` for all pods
-
----
-
-### 6. Architecture Diagram
-
-**Filename**: `architecture.png`
-
-**How to capture**:
-- Export the Mermaid diagram from `README.md` as a PNG
-- Use https://mermaid.live or the GitHub Mermaid renderer
-
-**What to show**:
-- Full system architecture including all components
-- Connection flows between Frontend, API, Redis, Prometheus, Grafana
-
----
-
-### 7. HPA in Action (Optional)
-
-**Filename**: `hpa-scaling.png`
-
-**How to capture**:
-```bash
-# Generate load first
-for i in {1..100}; do curl http://localhost:5000/simulate/cpu & done
-
-# Watch HPA scale
-kubectl get hpa -n kubesight -w
-```
-
-**What to show**:
-- HPA showing current CPU% and REPLICAS increasing
-
----
-
-### 8. AlertManager (Optional)
-
-**Filename**: `alertmanager.png`
-
-**How to capture**:
-```bash
-kubectl port-forward svc/kube-prometheus-stack-alertmanager 9093:9093 -n monitoring
-# Open http://localhost:9093
-# Trigger an alert: curl http://localhost:5000/simulate/cpu
-```
-
-**What to show**:
-- Active alerts visible in AlertManager UI
 
 ---
 

@@ -24,7 +24,7 @@ What is actually implemented:
 - **ServiceMonitor CRDs** for automatic Prometheus scraping
 - **PrometheusRule alerts** — HighCPU, HighMemory, PodRestarts (enabled in production)
 - **Grafana dashboard auto-provisioning** via ConfigMap + Grafana sidecar
-- **NetworkPolicy** restricting pod-to-pod traffic (enabled in production)
+- **NetworkPolicy** restricting pod-to-pod traffic: frontend open to all, API only from frontend, Redis only from API (enabled in production)
 - **Non-root containers** (UID 1000) with `runAsNonRoot: true`
 - **JSON-structured logging** with per-request IDs on both services
 - **Failure simulation endpoints** on the API for manual alert testing
@@ -62,7 +62,7 @@ graph TB
 
     SMApi -->|scrape /metrics 30s| Prometheus
     SMFrontend -->|scrape /metrics 30s| Prometheus
-    PRules -->|evaluate rules| Prometheus
+    PRules -->|alert rules| Prometheus
     GrafanaCM -->|sidecar auto-provision| Grafana
     Prometheus -->|datasource| Grafana
 ```
@@ -96,7 +96,7 @@ kubesight-production-observability/
 ├── app/
 │   ├── api/
 │   │   ├── app.py                 # Flask API: metrics, Redis, health, simulate/*
-│   │   ├── Dockerfile             # Non-root (UID 1000), Gunicorn
+│   │   ├── Dockerfile             # Non-root (appuser), Gunicorn
 │   │   └── requirements.txt
 │   └── frontend/
 │       ├── app.py                 # Flask Frontend: calls API, page view metrics
@@ -114,7 +114,7 @@ kubesight-production-observability/
 │       ├── redis-deployment.yaml
 │       ├── hpa.yaml               # CPU-based HPA for API + Frontend
 │       ├── pdb.yaml               # PDB for API, Frontend, Redis
-│       ├── networkpolicy.yaml     # Ingress rules: frontend→api→redis only
+│       ├── networkpolicy.yaml     # Ingress rules: open→frontend, frontend→api, api→redis
 │       ├── servicemonitor.yaml    # Prometheus scraping CRDs
 │       ├── prometheusrule.yaml    # Alert rules (production)
 │       ├── grafana-dashboard-configmap.yaml
@@ -146,16 +146,16 @@ kubesight-production-observability/
 
 | Feature | Status |
 |---|---|
-| 20+ templates | ✅ api, frontend, redis (deploy + svc), ingress, hpa, pdb, networkpolicy, serviceaccount, role, rolebinding, configmap, secret, servicemonitor, prometheusrule, grafana-configmap |
+| 20+ templates | ✅ api, frontend, redis (deploy + svc + pvc), ingress, hpa, pdb, networkpolicy, serviceaccount, role, rolebinding, configmap, secret, servicemonitor, prometheusrule, grafana-dashboard-configmap |
 | Multi-env values | ✅ default / dev / production |
 | RollingUpdate strategy | ✅ configurable maxSurge/maxUnavailable |
 | Startup + liveness + readiness probes | ✅ on API and Frontend (hit `/health`) |
 | HPA (CPU) | ✅ API + Frontend, enabled in production |
 | PDB | ✅ API + Frontend + Redis |
-| NetworkPolicy | ✅ frontend→api→redis isolation, enabled in production |
+| NetworkPolicy | ✅ open→frontend, frontend→api, api→redis isolation, enabled in production |
 | Topology spread constraints | ✅ template configurable via values (zone key) |
 | Checksum annotations | ✅ pod restart on ConfigMap/Secret change |
-| Helm tests | ✅ test suite in `kubesight-chart/tests/` |
+| Helm tests | ✅ unit tests in `kubesight-chart/tests/`, connection test hook in `templates/tests/` |
 
 ### Observability
 
