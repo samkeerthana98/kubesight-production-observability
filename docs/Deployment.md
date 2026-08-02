@@ -17,7 +17,7 @@ The fastest way to run KubeSight locally without Kubernetes.
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/kubesight-production-observability.git
+git clone https://github.com/samkeerthana98/kubesight-production-observability.git
 cd kubesight-production-observability
 
 # Start all services

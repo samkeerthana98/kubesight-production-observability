@@ -11,13 +11,18 @@ Create a Kind cluster configuration for local Kubernetes development.
 
 Requirements:
 - 1 control-plane node
-- 2 worker nodes
-- Port mappings: 80 → 30080, 443 → 30443 (for ingress)
-- Extra port mapping for NodePort services
-- Label worker nodes for topology spread constraints:
-    topology.kubernetes.io/zone: zone-a / zone-b
+- Label the node ingress-ready=true (required for NGINX ingress controller)
+- Direct port mappings on the control-plane node:
+    containerPort: 80  → hostPort: 80  (HTTP ingress)
+    containerPort: 443 → hostPort: 443 (HTTPS ingress)
+- No worker nodes (single-node cluster for local dev)
 
-Provide the kind-cluster-config.yaml file and the kind create cluster command.
+Provide:
+- kind-cluster-config.yaml using kind.x-k8s.io/v1alpha4
+- The kind create cluster command with --config and --name flags
+
+Note: topology spread constraints by zone will not function on a single-node
+cluster since no zone labels exist on the node.
 ```
 
 ---
@@ -25,24 +30,25 @@ Provide the kind-cluster-config.yaml file and the kind create cluster command.
 ## Docker Compose Local Development
 
 ```
-Create a docker-compose.yml for local development of KubeSight.
+Create docker-compose.yml for local development (no Kubernetes).
 
 Services:
-1. redis: redis:7-alpine
+1. redis: image redis:7-alpine
    - Expose port 6379
-   - Named volume for persistence
+   - Named volume redis_data mounted at /data
 
 2. api: build from ./app/api
-   - Expose port 5000
-   - Set env vars: REDIS_HOST=redis, REDIS_PORT=6379
-   - Depends on redis
+   - Expose port 5000:5000
+   - Environment: REDIS_HOST=redis, REDIS_PORT=6379
+   - depends_on: redis
 
 3. frontend: build from ./app/frontend
-   - Expose port 5001 → 5000
-   - Set env vars: API_SERVICE_HOST=api, API_SERVICE_PORT=5000
-   - Depends on api
+   - Expose port 5001:5000
+   - Environment: API_SERVICE_HOST=api, API_SERVICE_PORT=5000
+   - depends_on: api
 
-Use docker compose v2 syntax (no version key).
+Use docker compose v2 syntax (no version key at top).
+Named volumes section at bottom: redis_data.
 ```
 
 ---
@@ -50,22 +56,22 @@ Use docker compose v2 syntax (no version key).
 ## Dockerfile Best Practices
 
 ```
-Review and improve this Dockerfile for a Python Flask application:
+Create a production Dockerfile for a Python Flask application.
 
-FROM python:3.11
-WORKDIR /app
-COPY . .
-RUN pip install -r requirements.txt
-EXPOSE 5000
-CMD ["python", "app.py"]
+Requirements:
+1. Base image: python:3.11-slim
+2. Create non-root user: groupadd -r appuser && useradd -r -g appuser appuser
+3. WORKDIR /app
+4. Copy requirements.txt first (layer caching), then pip install --no-cache-dir
+5. Copy application source
+6. chown -R appuser:appuser /app
+7. Switch to: USER appuser
+8. EXPOSE 5000
+9. CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
 
-Apply best practices:
-1. Use slim base image
-2. Create and use a non-root user (appuser, UID 1000)
-3. Copy requirements.txt before source code (layer caching)
-4. Use --no-cache-dir for pip
-5. Use gunicorn instead of python app.py
-6. Add .dockerignore recommendations
+.dockerignore should exclude:
+__pycache__, *.pyc, .venv, .env, .pytest_cache, *.log,
+Dockerfile, docker-compose.yml, README.md
 ```
 
 ---
@@ -73,43 +79,27 @@ Apply best practices:
 ## GitHub Actions Helm CI
 
 ```
-Create a GitHub Actions workflow for Helm chart validation.
+Create .github/workflows/helm-lint.yml for Helm chart validation.
 
-Filename: .github/workflows/helm-lint.yml
+Trigger: push and pull_request on main and develop branches,
+only when paths kubesight-chart/** or the workflow file itself change.
 
-Requirements:
-- Trigger on: push and pull_request to main and develop branches
-- Jobs:
-  1. helm-lint: checkout, install helm, run helm lint
-  2. helm-template: run helm template and validate output
-  3. Fail the workflow if any step fails
+Job 1 — helm-lint:
+  runs-on: ubuntu-latest
+  steps: checkout (actions/checkout@v4), install Helm (azure/setup-helm@v4, version 3.14.0),
+  then run helm lint against:
+  - ./kubesight-chart (default values)
+  - ./kubesight-chart -f values-dev.yaml
+  - ./kubesight-chart -f values-production.yaml
 
-Use the latest stable versions of:
-- actions/checkout
-- azure/setup-helm
+Job 2 — helm-template (needs: helm-lint):
+  Same setup, then:
+  - helm template with default, dev, and production values
+  - Verify key resources are present in the production render by grepping for:
+    Deployment, Service, ServiceMonitor, PrometheusRule, grafana_dashboard,
+    HorizontalPodAutoscaler, PodDisruptionBudget, NetworkPolicy
 
-Run lint against: ./kubesight-chart
-Run template against: ./kubesight-chart with default values
-```
-
----
-
-## Helm Install kube-prometheus-stack
-
-```
-Provide the complete helm install command for kube-prometheus-stack with:
-- Namespace: monitoring
-- Grafana sidecar dashboards enabled
-- Dashboard label: grafana_dashboard
-- Persistent storage for Prometheus (10Gi)
-- Persistent storage for Grafana (5Gi)
-- AlertManager enabled
-- Node exporter enabled
-
-Also provide:
-- How to get the Grafana admin password
-- How to verify all pods are Running
-- How to access Prometheus, Grafana, AlertManager UIs
+Fail the workflow if any step exits non-zero.
 ```
 
 ---
@@ -117,20 +107,26 @@ Also provide:
 ## Zero-Downtime Deployment Strategy
 
 ```
-Explain and configure a zero-downtime deployment strategy for KubeSight.
+Configure zero-downtime deployments for KubeSight.
 
-Requirements:
-1. RollingUpdate with maxUnavailable: 25%, maxSurge: 25%
-2. PodDisruptionBudget minAvailable: 2 (production)
-3. Readiness probe must pass before traffic is sent to new pods
-4. terminationGracePeriodSeconds: 30 for graceful shutdown
-5. SIGTERM handler in Flask (if needed)
+Deployment strategy in values.yaml:
+  deploymentStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
 
-Explain:
-- How RollingUpdate interacts with readiness probes
-- Why maxUnavailable and maxSurge are both needed
-- What happens when a deployment is paused mid-rollout
-- How to rollback if the new version is unhealthy
+Combined with:
+- readinessProbe: new pods receive traffic only after /health returns 200
+- PDB minAvailable: 2 (production) — prevents draining too many pods at once
+- terminationGracePeriodSeconds: 30 — Kubernetes waits 30s for in-flight requests
+  before sending SIGKILL after SIGTERM
+
+How rolling update works with readiness probes:
+1. New pod starts, startupProbe runs (up to 155s grace period)
+2. Once startup passes, readinessProbe runs every 5s
+3. Pod is added to Service endpoints only when readinessProbe passes
+4. Old pod receives SIGTERM, finishes current requests within 30s, then exits
 ```
 
 ---
@@ -138,18 +134,18 @@ Explain:
 ## Kubernetes RBAC for KubeSight
 
 ```
-Create the minimal RBAC configuration for KubeSight.
+Create minimal RBAC for KubeSight.
 
-Requirements:
-- ServiceAccount: kubesight
-- Role (not ClusterRole) – namespace-scoped
-  - Resources: pods, services
-  - Verbs: get, watch, list
-- RoleBinding: bind the Role to the ServiceAccount
+Templates needed:
+1. serviceaccount.yaml — conditional on .Values.serviceAccount.create
+2. role.yaml — conditional on .Values.rbac.create
+   Kind: Role (namespace-scoped, not ClusterRole)
+   rules: currently empty — extend with get/watch/list on pods and services
+   if the application needs to introspect cluster state
+3. rolebinding.yaml — conditional on .Values.rbac.create
+   Binds the Role to the ServiceAccount in .Release.Namespace
 
-Wrap in Helm conditionals:
-- {{- if .Values.serviceAccount.create }} for ServiceAccount
-- {{- if .Values.rbac.create }} for Role and RoleBinding
-
-Explain why ClusterRole is not needed for this use case.
+Why Role not ClusterRole:
+KubeSight pods only need access within their own namespace. ClusterRole would
+grant permissions across all namespaces, violating least-privilege.
 ```

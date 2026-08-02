@@ -8,23 +8,22 @@ Prompts used during the design and implementation of the KubeSight observability
 
 ```
 Design a complete observability stack for a production Kubernetes application
-using the kube-prometheus-stack (Prometheus Operator + Grafana + AlertManager).
+using kube-prometheus-stack (Prometheus Operator + Grafana + AlertManager).
 
-Application: KubeSight (Python Flask API + Frontend + Redis)
-Cluster: Kind (local), EKS/GKE ready
+Application: KubeSight (Python Flask API + Frontend + Redis on Kind cluster)
 
 Requirements:
-1. Metrics collection via ServiceMonitors (CRD)
-2. Custom application metrics (Counters, Histograms)
-3. Alerting rules via PrometheusRules (CRD)
-4. Grafana dashboard auto-provisioning
-5. AlertManager for alert routing
+1. Custom application metrics via prometheus_client (Counters, Histograms)
+2. Automatic Prometheus scraping via ServiceMonitor CRDs
+3. Alert rules via PrometheusRule CRDs
+4. Grafana dashboard auto-provisioned via ConfigMap sidecar
 
-Describe:
-- Component installation order
-- Namespace layout
-- Label conventions for Prometheus discovery
-- How ServiceMonitors connect to Prometheus
+Namespace layout:
+- kubesight: application pods + ServiceMonitors + PrometheusRule (Helm release)
+- monitoring: kube-prometheus-stack (Prometheus, Grafana, AlertManager) + Grafana dashboard ConfigMap
+
+Label convention for Prometheus discovery:
+  ServiceMonitor must have: release: kube-prometheus-stack
 ```
 
 ---
@@ -32,14 +31,19 @@ Describe:
 ## kube-prometheus-stack Installation
 
 ```
-Provide the correct helm install command for kube-prometheus-stack with:
-1. Grafana sidecar enabled for dashboard auto-provisioning
-2. Dashboard sidecar label set to "grafana_dashboard"
-3. AlertManager enabled
-4. Prometheus retention: 7 days
-5. Install into the monitoring namespace
+Helm install command for kube-prometheus-stack:
 
-Also explain what each flag does and why it's needed.
+helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --set grafana.sidecar.dashboards.enabled=true \
+  --set grafana.sidecar.dashboards.label=grafana_dashboard
+
+Flags explained:
+- grafana.sidecar.dashboards.enabled=true: starts the sidecar container that
+  watches for ConfigMaps and auto-provisions dashboards
+- grafana.sidecar.dashboards.label=grafana_dashboard: label key the sidecar
+  watches for (must match the label on the KubeSight dashboard ConfigMap)
 ```
 
 ---
@@ -50,15 +54,16 @@ Also explain what each flag does and why it's needed.
 Implement structured JSON logging in a Python Flask application.
 
 Requirements:
-- All logs must be JSON format (for log aggregation tools)
-- Include fields: timestamp, service, request_id, endpoint, status, duration, level, message
-- Generate or extract X-Request-ID from request headers
-- Propagate request_id to outgoing HTTP calls
-- Use before_request / after_request hooks
-- Handle teardown_request for exception logging
-- No None values in log output (omit null fields)
+- Custom logging.Formatter subclass (JsonFormatter) that outputs JSON strings
+- Fields: timestamp, service, request_id, endpoint, status, duration, level, message
+- Use has_request_context() to safely access Flask g outside request context
+- Generate or extract X-Request-ID from request headers in before_request
+  Store as g.request_id = request.headers.get('X-Request-ID', str(uuid.uuid4()))
+- Log in after_request (duration, status code)
+- Log in teardown_request for exception cases
+- Strip None values from log output dict before json.dumps
 
-Service name: "api"
+Service names: "api" and "frontend" as the service field.
 ```
 
 ---
@@ -66,20 +71,23 @@ Service name: "api"
 ## Health Check Endpoints
 
 ```
-Design health check endpoints for a Kubernetes-deployed Flask application.
+Implement GET /health for Kubernetes liveness and readiness probes.
 
-Requirements:
-1. GET /health
-   - Returns HTTP 200 if healthy, 503 if unhealthy
-   - Checks Redis connection (ping)
-   - Returns JSON with: status, service, timestamp, message, redis.status
+API /health:
+- Calls redis_client.ping()
+- Returns 200 + JSON {status: "healthy", redis: {status: "connected"}}
+  if ping succeeds
+- Returns 503 + JSON {status: "unhealthy", redis: {status: "...", error: "..."}}
+  if ping fails or redis_client is None
+- Updates redis_operations_total{operation="ping"} metric
 
-2. GET /version
-   - Returns JSON with: service, version, commit, environment, timestamp
-   - Reads VERSION, COMMIT_SHA, ENVIRONMENT from environment variables
+Frontend /health:
+- Calls API /health via requests.get with timeout=2
+- Returns 200 if API is reachable, otherwise returns unhealthy
+- Cascading: frontend healthy = API healthy = Redis healthy
 
-These endpoints are used by Kubernetes liveness and readiness probes.
-Ensure the health endpoint does NOT update metrics (avoid probe noise).
+Both services also expose GET /version returning:
+{service, version, commit, environment, timestamp} from env vars.
 ```
 
 ---
@@ -87,26 +95,26 @@ Ensure the health endpoint does NOT update metrics (avoid probe noise).
 ## Simulation Endpoints for Alert Testing
 
 ```
-Create Flask endpoints to simulate failure scenarios for testing Prometheus alerts:
+Create these simulation endpoints on the Flask API service:
 
-1. GET /simulate/error
-   - Raises a Python exception (triggers 500 response)
-   - Used to test error rate alerts
+GET /simulate/error
+  raise Exception("This is a simulated error for testing")
+  The global error handler returns 500 JSON.
 
-2. GET /simulate/slow
-   - Sleeps for 2 seconds before responding
-   - Used to test latency alerts
+GET /simulate/slow
+  time.sleep(2)
+  Return 200 JSON after delay.
 
-3. GET /simulate/cpu
-   - Runs a CPU-intensive loop for 1.5 seconds
-   - Used to test HighCPU alerts
+GET /simulate/cpu
+  Busy loop for 1.5 seconds: while time.time() - start < 1.5: [x*x for x in range(1000)]
+  Return 200 JSON.
 
-4. GET /simulate/redis-down
-   - Simulates a Redis connection failure
-   - Returns 500 with JSON error response
-   - Updates redis_operations_total{status="error"} metric
+GET /simulate/redis-down
+  Explicitly raise redis.ConnectionError("Redis connection failed - simulated")
+  Call update_redis_metrics("ping", "error", "connection")
+  Return 500 JSON {status: "error", error: "Redis unavailable"}
 
-All endpoints should return consistent JSON format and log the simulation.
+All endpoints return consistent JSON and log the simulation event.
 ```
 
 ---
@@ -114,35 +122,27 @@ All endpoints should return consistent JSON format and log the simulation.
 ## Probe Configuration
 
 ```
-Configure Kubernetes startup, liveness, and readiness probes for a Flask
-application that:
-- Takes up to 30 seconds to start (including Redis connection)
-- Has a /health endpoint returning 200/503
-- Should be killed and restarted after 3 consecutive health failures
-- Should not receive traffic until healthy
+Configure Kubernetes startup, liveness, and readiness probes for Flask
+services using GET /health:
 
-Provide:
-- startupProbe configuration (allows slow startup)
-- livenessProbe configuration (kills and restarts unhealthy pod)
-- readinessProbe configuration (removes from Service endpoints)
+startupProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 30   # allows up to 155s startup time
+  (kills pod if still failing after 30 attempts)
 
-Explain the difference between all three probe types.
-```
+livenessProbe:
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  failureThreshold: 3
+  (kills and restarts pod after 3 consecutive failures)
 
----
+readinessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 3
+  (removes pod from Service endpoints when unhealthy)
 
-## PodDisruptionBudget
-
-```
-Explain PodDisruptionBudgets in Kubernetes and configure one for KubeSight.
-
-Requirements:
-- Dev: minAvailable: 1
-- Production: minAvailable: 2
-
-Explain:
-- What disruptions does PDB protect against?
-- What is the difference between minAvailable and maxUnavailable?
-- Why should you NOT set both simultaneously?
-- How does PDB interact with HPA and rolling updates?
+All probe fields (timeoutSeconds, successThreshold, failureThreshold) are
+driven from .Values.api.probes.* and .Values.frontend.probes.* in values.yaml.
 ```

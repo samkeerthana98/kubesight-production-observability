@@ -9,33 +9,34 @@ Prompts used during the creation and configuration of the KubeSight Grafana dash
 ```
 Design a production Grafana dashboard for the KubeSight Kubernetes observability platform.
 
-The dashboard should cover:
-1. HTTP Traffic section
-   - Request rate per service (API + Frontend)
-   - Error rate (5xx)
+Sections and panels:
+
+1. HTTP Traffic
+   - API request rate: rate(api_http_requests_total[5m])
+   - Frontend request rate: rate(frontend_http_requests_total[5m])
+   - API error rate (5xx): rate(api_http_requests_total{http_status=~"5.."}[5m])
    - Total requests (stat panel)
 
-2. Latency section
-   - p50, p95, p99 latency for API
-   - p99 latency for Frontend
-   - Latency heatmap
+2. Latency
+   - API p50/p95/p99: histogram_quantile(0.X, rate(api_http_request_duration_seconds_bucket[5m]))
+   - Frontend p99 latency
 
-3. Redis section
-   - Operations per second (by type)
+3. Redis
+   - Operations per second by type: rate(redis_operations_total[5m])
    - Success vs error breakdown
-   - Total visit counter (stat panel)
+   - Total visit counter (stat panel from redis_operations_total{operation="incr",key="visits"})
 
-4. Page Views section
-   - Page views rate
-   - Views by page (bar chart)
+4. Page Views
+   - Page views rate: rate(frontend_page_views_total[5m])
+   - Views by page (bar chart): sum by (page) (rate(frontend_page_views_total[5m]))
 
-5. Infrastructure section
-   - Pod CPU usage (% of limits)
-   - Pod memory usage (% of limits)
+5. Infrastructure
+   - Pod CPU: rate(container_cpu_user_seconds_total{namespace="kubesight"}[1m])
+   - Pod memory: container_memory_working_set_bytes{namespace="kubesight"}
    - Pod restart count
-   - Available vs desired replicas
+   - Available replicas
 
-Include template variables for: namespace, service, interval.
+Template variables: $namespace, $service, $interval (1m, 5m, 15m).
 Use Grafana 10.x JSON model format.
 ```
 
@@ -44,21 +45,21 @@ Use Grafana 10.x JSON model format.
 ## Grafana Dashboard Auto-Provisioning
 
 ```
-Explain how to auto-provision a Grafana dashboard in Kubernetes using the
-Grafana sidecar container pattern.
+Auto-provision a Grafana dashboard in Kubernetes using the sidecar pattern.
 
-Requirements:
-1. Create a Kubernetes ConfigMap in the monitoring namespace
-2. Add the label grafana_dashboard: "1" to the ConfigMap
-3. Store the dashboard JSON in the ConfigMap data
-4. The Grafana sidecar container should detect and load it automatically
+How it works:
+1. Create a ConfigMap in the monitoring namespace containing dashboard JSON
+2. Add label grafana_dashboard: "1" to the ConfigMap
+3. The Grafana sidecar container (grafana-sc-dashboard) watches for ConfigMaps
+   with this label and copies the JSON into Grafana's provisioning path
+4. Grafana loads the dashboard automatically — no restart or manual import needed
 
-Provide:
-- The Kubernetes ConfigMap YAML structure
-- The required Grafana sidecar configuration in kube-prometheus-stack
-- How to verify the dashboard was loaded
+kube-prometheus-stack install flags required:
+  --set grafana.sidecar.dashboards.enabled=true
+  --set grafana.sidecar.dashboards.label=grafana_dashboard
 
-Note: The dashboard must be in the same namespace as Grafana.
+The ConfigMap must be in the same namespace as Grafana (monitoring).
+The KubeSight Helm chart deploys it there via .Values.grafanaDashboard.namespace.
 ```
 
 ---
@@ -66,31 +67,21 @@ Note: The dashboard must be in the same namespace as Grafana.
 ## Grafana ConfigMap Helm Template
 
 ```
-Create a Helm template (grafana-dashboard-configmap.yaml) that:
-1. Is conditional: only rendered if .Values.grafanaDashboard.enabled is true
+Create grafana-dashboard-configmap.yaml Helm template that:
+1. Is conditional: {{- if .Values.grafanaDashboard.enabled }}
 2. Creates a ConfigMap in .Values.grafanaDashboard.namespace (default: monitoring)
-3. Loads the dashboard JSON from grafana-dashboard.json using .Files.Get
-4. Indents the JSON correctly for YAML embedding (4 spaces)
-5. Includes the label grafana_dashboard: "1" for sidecar detection
-6. Includes standard Helm labels
+   using: namespace: {{ .Values.grafanaDashboard.namespace | default .Release.Namespace }}
+3. Loads dashboard JSON from grafana-dashboard.json using .Files.Get
+   and indents it 4 spaces for valid YAML embedding
+4. Includes label grafana_dashboard: "1" for sidecar detection
+5. Includes standard Helm labels from kubesight.labels helper
 
-Handle the case where grafanaDashboard.namespace may be different from the
-release namespace (the dashboard ConfigMap must be in the monitoring namespace,
-not the kubesight namespace).
-```
+The ConfigMap is intentionally in the monitoring namespace, not kubesight.
+This is required for the Grafana sidecar to detect it.
 
----
-
-## Dashboard Variables
-
-```
-Add Grafana template variables to the KubeSight dashboard:
-1. $namespace – query label_values(kube_pod_info, namespace)
-2. $service – query label_values(api_http_requests_total, job)
-3. $interval – custom intervals: 1m, 5m, 15m, 30m, 1h
-
-Show how to use these variables in PromQL queries, e.g.:
-rate(api_http_requests_total{namespace=~"$namespace"}[$interval])
+data:
+  kubesight-production-dashboard.json: |
+{{ .Files.Get "grafana-dashboard.json" | indent 4 }}
 ```
 
 ---
@@ -98,30 +89,14 @@ rate(api_http_requests_total{namespace=~"$namespace"}[$interval])
 ## Grafana Datasource Configuration
 
 ```
-Explain how the Prometheus datasource is configured in kube-prometheus-stack.
+The Prometheus datasource in kube-prometheus-stack is named "Prometheus" by default.
+The internal cluster URL is: http://kube-prometheus-stack-prometheus:9090
 
-Questions:
-1. What is the default datasource name?
-2. How to reference it in dashboard JSON?
-3. How to verify the datasource is working in Grafana?
-4. How to manually add a Prometheus datasource if it's missing?
+In Grafana dashboard JSON, reference it as:
+  "datasource": { "type": "prometheus", "uid": "prometheus" }
 
-The Prometheus service is in the monitoring namespace.
-The internal URL is: http://kube-prometheus-stack-prometheus:9090
-```
-
----
-
-## Alert Annotations in Grafana
-
-```
-Configure Grafana alert annotations to display firing Prometheus alerts
-directly on the KubeSight dashboard.
-
-Requirements:
-- Show AlertManager alerts as annotations on time series panels
-- Filter to only KubeSight alerts (label: namespace="kubesight")
-- Display alert name and description in the annotation tooltip
-
-Provide the annotation configuration JSON for Grafana 10.x dashboard.
+To verify the datasource:
+  kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring
+  Open http://localhost:3000 → Connections → Data Sources → Prometheus
+  Click "Save & Test" to confirm connectivity.
 ```

@@ -215,7 +215,7 @@ kubectl exec -it <frontend-pod> -n kubesight -- wget -qO- http://kubesight-api:5
 **If NetworkPolicy is enabled** (production), verify the policy allows frontend → api traffic:
 ```bash
 kubectl get networkpolicy -n kubesight
-kubectl describe networkpolicy kubesight -n kubesight
+kubectl describe networkpolicy kubesight-kubesight-api -n kubesight
 ```
 
 ---

@@ -15,14 +15,15 @@ with the following components:
 
 Requirements:
 - Multi-environment values (dev, production)
-- HPA with CPU-based autoscaling
-- PodDisruptionBudget
-- NetworkPolicy
-- RBAC (Role, RoleBinding, ServiceAccount)
-- Topology spread constraints
+- HPA with CPU-based autoscaling (autoscaling/v2)
+- PodDisruptionBudget (policy/v1)
+- NetworkPolicy (ingress-only rules per component)
+- RBAC (ServiceAccount, Role, RoleBinding)
+- Topology spread constraints (zone-aware, configurable via values)
 - RollingUpdate deployment strategy
-- Startup, liveness, and readiness probes
-- Helm tests
+- Startup, liveness, and readiness probes on API and Frontend
+- Helm unit tests (helm-unittest framework)
+- Helm test connection hook
 
 Use Helm best practices and Kubernetes 1.28+ API versions.
 ```
@@ -33,19 +34,25 @@ Use Helm best practices and Kubernetes 1.28+ API versions.
 
 ```
 Create a structured values.yaml for the KubeSight Helm chart with:
-- Global image settings (registry, tag, pullPolicy)
-- Per-component overrides (api, frontend, redis)
-- Resource requests and limits
-- Probe configuration (liveness, readiness, startup)
-- Autoscaling configuration
-- Monitoring section (serviceMonitor, prometheusRule)
-- Grafana dashboard section
-- Ingress configuration with TLS
-- NetworkPolicy toggle
-- PDB configuration
-- Topology spread constraints
+- replicaCount (global)
+- Per-component image, service port, resources, probes (api / frontend / redis)
+- Probe sub-keys: liveness, readiness, startup (initialDelaySeconds, periodSeconds,
+  timeoutSeconds, successThreshold, failureThreshold)
+- Autoscaling section (enabled, minReplicas, maxReplicas, targetCPUUtilizationPercentage)
+- Monitoring section (serviceMonitor.enabled/interval/scrapeTimeout, prometheusRule.enabled)
+- grafanaDashboard section (enabled, namespace)
+- Ingress section (enabled, className, annotations, hosts, tls, backend)
+- NetworkPolicy toggle (enabled)
+- PDB section (enabled, minAvailable)
+- Topology spread constraints section (enabled, maxSkew, topologyKey, whenUnsatisfiable)
+- Deployment strategy section (type, rollingUpdate.maxUnavailable/maxSurge)
+- common env vars block (VERBOSE, VERSION, COMMIT_SHA, ENVIRONMENT)
+- secret block (JWT_SECRET, REDIS_PASSWORD)
+- RBAC section (create)
+- testConnection section (enabled)
 
-Ensure values are sensible defaults for a development environment.
+Defaults should be suitable for a development environment (1 replica, HPA off,
+NetworkPolicy off, PrometheusRule off).
 ```
 
 ---
@@ -53,16 +60,18 @@ Ensure values are sensible defaults for a development environment.
 ## Production Values Override
 
 ```
-Create a values-production.yaml that overrides the default values with:
+Create values-production.yaml that overrides defaults with:
 - replicaCount: 3
-- HPA enabled (min: 3, max: 10, targetCPU: 70%)
+- HPA enabled (minReplicas: 3, maxReplicas: 10, targetCPUUtilizationPercentage: 70)
 - PDB minAvailable: 2
 - NetworkPolicy enabled
 - PrometheusRule enabled
-- Redis PVC: 10Gi
-- Ingress enabled with nginx class and TLS
-- Higher CPU/memory limits
+- Redis PVC size: 10Gi
+- Ingress enabled with className: nginx and TLS
+  (use secretName, not secretId, in the tls block)
+- CPU limit: 1000m, memory limit: 1Gi
 - priorityClassName: high-priority
+- ENVIRONMENT: production
 
 Follow Kubernetes production best practices.
 ```
@@ -72,17 +81,20 @@ Follow Kubernetes production best practices.
 ## Helm Helper Templates
 
 ```
-Create _helpers.tpl for the KubeSight Helm chart with these named templates:
+Create _helpers.tpl for the KubeSight Helm chart with:
 - kubesight.name
-- kubesight.fullname
+- kubesight.fullname (supports fullnameOverride and nameOverride)
 - kubesight.chart
-- kubesight.labels (standard Helm labels)
-- kubesight.selectorLabels
+- kubesight.labels (helm.sh/chart, app.kubernetes.io/name, instance, version, managed-by)
+- kubesight.selectorLabels (name + instance only)
 - kubesight.serviceAccountName
-- kubesight.includeConfigMap (sha256sum for checksum annotation)
-- kubesight.includeSecret (sha256sum for checksum annotation)
 
-Include the Helm license header.
+For checksum annotations (to force pod restart on config change), use:
+  checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+  checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+
+Note: .Files.Get cannot read files inside the templates/ directory.
+Use include + print $.Template.BasePath instead.
 ```
 
 ---
@@ -90,32 +102,63 @@ Include the Helm license header.
 ## Deployment Template
 
 ```
-Create an api-deployment.yaml Helm template with:
-- RollingUpdate strategy from values
-- Topology spread constraints (conditional)
-- Non-root security context (runAsUser: 1000)
-- Environment variables from ConfigMap and Secret
-- Redis connection env vars from the fullname helper
-- Startup + liveness + readiness probes (all from values)
-- Checksum annotations for ConfigMap and Secret (force restart on config change)
-- Conditional lifecycle hooks
-- Conditional APM agent comments
-- initContainers, hostAliases from values
+Create api-deployment.yaml Helm template with:
+- RollingUpdate strategy from .Values.deploymentStrategy
+- Non-root security context: runAsNonRoot: true, runAsUser: 1000 (container level)
+- podSecurityContext from .Values.podSecurityContext (fsGroup: 2000)
+- Environment variables: loop over .Values.api.env, then hardcoded REDIS_HOST
+  (built with printf "%s-redis" (include "kubesight.fullname" $)) and REDIS_PORT
+- envFrom: configMapRef and secretRef using fullname helper
+- Startup + liveness + readiness probes all pointing to /health
+- All probe fields (initialDelaySeconds, periodSeconds, timeoutSeconds,
+  successThreshold, failureThreshold) driven from .Values.api.probes.*
+- Conditional lifecycle hooks (.Values.api.lifecycle.enabled)
+- initContainers, hostAliases, tolerations, affinity from values (with)
+- topologySpreadConstraints block conditional on .Values.topologySpreadConstraints.enabled
 - terminationGracePeriodSeconds from values
+- Checksum annotations on pod template metadata
+
+Important: priorityClassName and dnsPolicy belong inside spec.template.spec
+(the pod spec), not inside spec (the Deployment spec).
 ```
 
 ---
 
-## Helm Lint Debugging
+## YAML Indentation Issues Found
 
 ```
-The following helm lint error appears:
-[ERROR] templates/: <error message here>
+The following YAML indentation bugs were found in the KubeSight Helm templates
+and had to be debugged:
 
-Analyze the error and provide the fix. The chart is for a production
-Kubernetes application with ServiceMonitor CRDs from prometheus-operator.
-Consider that CRD types (monitoring.coreos.com/v1) may not be available
-during lint and require --set flags or schema validation workarounds.
+1. api-deployment.yaml / redis-deployment.yaml:
+   priorityClassName and dnsPolicy were placed at spec level of the Deployment.
+   They belong inside spec.template.spec (pod spec).
+   Wrong:
+     spec:
+       priorityClassName: ...
+       dnsPolicy: ...
+       strategy: ...
+   Correct:
+     spec:
+       strategy: ...
+       template:
+         spec:
+           priorityClassName: ...
+           dnsPolicy: ...
+
+2. _helpers.tpl checksum helpers:
+   kubesight.includeConfigMap used .Files.Get on the templates/ path.
+   Helm does not allow .Files.Get to read files from templates/.
+   Wrong: {{ .Files.Get (printf "%s/configmap.yaml" .Path) | sha256sum }}
+   Correct: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+
+3. values-production.yaml ingress TLS:
+   Used secretId instead of the correct Kubernetes field secretName.
+   Wrong:  - secretId: kubesight-tls
+   Correct: - secretName: kubesight-tls
+
+Explain each bug, why it causes a silent failure or incorrect render,
+and provide the corrected YAML.
 ```
 
 ---
@@ -123,16 +166,19 @@ during lint and require --set flags or schema validation workarounds.
 ## Helm Test Templates
 
 ```
-Create Helm test files for the KubeSight chart:
-- api-deployment_test.yaml: validate API deployment has correct image, probes, env vars
-- frontend-deployment_test.yaml: same for frontend
-- api-service_test.yaml: validate service port and selector
-- frontend-service_test.yaml: same for frontend
-- redis-service_test.yaml: validate redis service
-- pdb_test.yaml: validate PDB minAvailable
-- configmap_test.yaml: validate required keys exist
-- secret_test.yaml: validate required keys exist
-- ingress_test.yaml: validate ingress host (requires ingress-values.yaml override)
+Create Helm unit test files for the KubeSight chart using helm-unittest.
 
-Use helm-unittest framework (helm.sh/chart-testing).
+Test files needed:
+- api-deployment_test.yaml: kind, name, labels, replicas, selector, image, port
+- frontend-deployment_test.yaml: same as api
+- redis-deployment_test.yaml: kind, name, labels, replicas, image (redis:7-alpine), port 6379
+- api-service_test.yaml: kind, name, port 5000, targetPort 5000
+- frontend-service_test.yaml: kind, name, port 5000, targetPort 5000
+- redis-service_test.yaml: kind, name, port 6379, targetPort 6379
+- pdb_test.yaml: three documents (api, frontend, redis) using documentIndex
+- secret_test.yaml: stringData.JWT_SECRET and stringData.REDIS_PASSWORD using set:
+- configmap_test.yaml: kind and name
+- ingress_test.yaml: uses separate ingress-values.yaml, validates host, path, TLS secretName
+
+Each suite sets release.name: test-release and uses the templates: list.
 ```
