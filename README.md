@@ -278,20 +278,7 @@ Panels: HTTP request rate, latency (p50/p95/p99), Redis ops, error rate, pod CPU
 | Grafana Dashboard | `screenshots/grafana-dashboard.png` |
 | Prometheus Targets | `screenshots/prometheus-targets.png` |
 | Prometheus Metrics | `screenshots/prometheus-metrics.png` |
-| Helm Deploy + Pods | `screenshots/heml-deploy.png`, `screenshots/pods-running.png` |
-
----
-
-## Resume Highlights
-
-- Deployed a **production Kubernetes observability platform** using Helm, Prometheus, and Grafana on a Kind cluster
-- Authored a **20-template Helm chart** with multi-environment values (dev/production), HPA, PDB, and NetworkPolicy
-- Implemented **custom Prometheus metrics** (Counters, Histograms) in Python Flask and configured **ServiceMonitor CRDs** for automatic scraping via kube-prometheus-stack
-- Built a **Grafana dashboard** (auto-provisioned via ConfigMap sidecar) with request rates, latency percentiles (p50/p95/p99), Redis health, and pod resource panels
-- Configured **PrometheusRule alert rules** for HighCPU, HighMemory, and PodRestarts
-- Implemented **zero-downtime rolling deployments** with startup, liveness, and readiness probes and PodDisruptionBudgets
-- Applied **container security**: non-root users (UID 1000), NetworkPolicies restricting pod-to-pod traffic
-- Added a **GitHub Actions CI workflow** for Helm lint and template validation across all three environment value files
+| Helm Deploy + Pods | `screenshots/helm-deploy.png`, `screenshots/pods-running.png` |
 
 ---
 
