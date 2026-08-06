@@ -98,9 +98,10 @@ kubesight-production-observability/
 │   └── frontend/                  # Flask Frontend: calls API, page view metrics
 ├── kubesight-chart/
 │   ├── Chart.yaml
-│   ├── values.yaml                # Default values
+│   ├── values.yaml                # Shared chart defaults and common configuration
 │   ├── values-dev.yaml            # Dev overrides (1 replica, minimal resources)
-│   ├── values-production.yaml     # Production: 3 replicas, HPA, PDB, NetworkPolicy
+│   ├── values-kind.yaml           # Kind/local ingress profile (HTTP, no TLS redirect)
+│   ├── values-production.yaml     # Production: 3 replicas, HPA, PDB, NetworkPolicy, TLS ingress
 │   ├── grafana-dashboard.json     # Dashboard JSON (embedded into ConfigMap)
 │   └── templates/                 # 20 Helm templates
 │       ├── api-deployment.yaml    # Probes, security context, rolling update
@@ -141,7 +142,7 @@ kubesight-production-observability/
 | Feature | Status |
 |---|---|
 | 20 templates | ✅ api, frontend, redis (deploy + svc + pvc), ingress, hpa, pdb, networkpolicy, serviceaccount, role, rolebinding, configmap, secret, servicemonitor, prometheusrule, grafana-dashboard-configmap |
-| Multi-env values | ✅ default / dev / production |
+| Multi-env values | ✅ default / dev / kind / production |
 | RollingUpdate strategy | ✅ configurable maxSurge/maxUnavailable |
 | Startup + liveness + readiness probes | ✅ on API and Frontend (hit `/health`) |
 | HPA (CPU) | ✅ API + Frontend, enabled in production |
@@ -194,7 +195,10 @@ helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --set grafana.sidecar.dashboards.enabled=true \
   --set grafana.sidecar.dashboards.label=grafana_dashboard
 
-# 3. Deploy KubeSight on Kind (HTTP, no TLS redirect)
+# 3. Validate the chart
+helm lint ./kubesight-chart
+
+# 4. Deploy KubeSight on Kind (HTTP, no TLS redirect)
 helm install kubesight ./kubesight-chart \
   --namespace kubesight --create-namespace \
   -f ./kubesight-chart/values-kind.yaml
@@ -204,14 +208,16 @@ helm upgrade kubesight ./kubesight-chart \
   --namespace kubesight \
   -f ./kubesight-chart/values-kind.yaml
 
-# 4. Verify
+# 5. Verify
 kubectl get pods -n kubesight
 helm test kubesight -n kubesight
 
-# 5. Access services
+# 6. Access services
 kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring
 kubectl port-forward svc/kube-prometheus-stack-prometheus 9090:9090 -n monitoring
 ```
+
+Application: http://kubesight.example.com
 
 Grafana: http://localhost:3000 — `admin / prom-operator`
 
@@ -265,17 +271,26 @@ Panels: HTTP request rate, latency (p50/p95/p99), Redis ops, error rate, pod CPU
 
 ## Multi-Environment Configuration
 
-| Feature | Dev | Production |
-|---|---|---|
-| Replicas | 1 | 3 |
-| HPA | Disabled | Enabled (3–10, target CPU 70%) |
-| PDB | minAvailable: 1 | minAvailable: 2 |
-| NetworkPolicy | Disabled | Enabled |
-| PrometheusRule | Disabled | Enabled |
-| Redis PVC | 1Gi | 10Gi |
-| Ingress | Disabled | Enabled (nginx) |
-| CPU limit | 500m | 1000m |
-| Memory limit | 512Mi | 1Gi |
+The chart uses four values files for different purposes:
+
+- `values.yaml` — shared chart defaults and common configuration used as the base for all environments
+- `values-dev.yaml` — lightweight development profile for Kubernetes without production-only features
+- `values-kind.yaml` — local Kind profile with ingress enabled over plain HTTP and TLS redirect disabled
+- `values-production.yaml` — production profile with autoscaling, NetworkPolicy, PrometheusRule, and TLS-enabled ingress
+
+| Feature | Dev | Kind | Production |
+|---|---|---|---|
+| Base file | `values-dev.yaml` | `values-kind.yaml` | `values-production.yaml` |
+| Replicas | 1 | 1 | 3 |
+| HPA | Disabled | Disabled | Enabled (3–10, target CPU 70%) |
+| PDB | minAvailable: 1 | Uses chart defaults | minAvailable: 2 |
+| NetworkPolicy | Disabled | Uses chart defaults | Enabled |
+| PrometheusRule | Disabled | Uses chart defaults | Enabled |
+| Redis PVC | 1Gi | Uses chart defaults | 10Gi |
+| Ingress | Disabled | Enabled (nginx, HTTP only) | Enabled (nginx, TLS) |
+| TLS redirect | Disabled | Disabled | Enabled |
+| CPU limit | 500m | Uses chart defaults | 1000m |
+| Memory limit | 512Mi | Uses chart defaults | 1Gi |
 
 ---
 
@@ -297,6 +312,13 @@ Panels: HTTP request rate, latency (p50/p95/p99), Redis ops, error rate, pod CPU
 - [ ] Configure AlertManager receivers (Slack / PagerDuty)
 - [ ] Terraform module for EKS cluster provisioning
 - [ ] Implement canary deployments with Argo Rollouts
+
+---
+
+## Continuous Integration
+
+GitHub Actions validates the Helm chart on pushes and pull requests affecting `kubesight-chart/`.
+The workflow runs `helm lint` and `helm template` validation against the default, dev, and production configurations, and checks that key resources such as Deployments, Services, ServiceMonitors, PrometheusRules, HPAs, PDBs, NetworkPolicies, and the Grafana dashboard ConfigMap render correctly.
 
 ---
 
