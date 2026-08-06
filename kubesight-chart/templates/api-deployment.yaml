@@ -6,17 +6,6 @@ metadata:
     {{- include "kubesight.labels" . | nindent 4 }}
     app.kubernetes.io/component: api
 spec:
-  replicas: {{ .Values.replicaCount }}
-  {{- if .Values.priorityClassName }}
-  priorityClassName: {{ .Values.priorityClassName }}
-  {{- end }}
-  {{- if .Values.dnsPolicy }}
-  dnsPolicy: {{ .Values.dnsPolicy }}
-  {{- end }}
-  {{- with .Values.dnsConfig }}
-  dnsConfig:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
   strategy:
     {{- toYaml .Values.deploymentStrategy | nindent 4 }}
   selector:
@@ -32,6 +21,16 @@ spec:
         checksum/config: {{ include "kubesight.includeConfigMap" . }}
         checksum/secret: {{ include "kubesight.includeSecret" . }}
     spec:
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- end }}
+      {{- if .Values.dnsPolicy }}
+      dnsPolicy: {{ .Values.dnsPolicy }}
+      {{- end }}
+      {{- with .Values.dnsConfig }}
+      dnsConfig:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

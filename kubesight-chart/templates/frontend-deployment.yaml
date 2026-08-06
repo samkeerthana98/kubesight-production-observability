@@ -6,10 +6,6 @@ metadata:
     {{- include "kubesight.labels" . | nindent 4 }}
     app.kubernetes.io/component: frontend
 spec:
-  replicas: {{ .Values.replicaCount }}
-  {{- if .Values.priorityClassName }}
-  priorityClassName: "{{ .Values.priorityClassName }}"
-  {{- end }}
   strategy:
     {{- toYaml .Values.deploymentStrategy | nindent 4 }}
   selector:
@@ -25,6 +21,9 @@ spec:
         checksum/config: {{ include "kubesight.includeConfigMap" . }}
         checksum/secret: {{ include "kubesight.includeSecret" . }}
     spec:
+      {{- if .Values.priorityClassName }}
+      priorityClassName: "{{ .Values.priorityClassName }}"
+      {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}

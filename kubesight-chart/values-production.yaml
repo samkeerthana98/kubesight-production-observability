@@ -103,6 +103,7 @@ redis:
     enabled: true
     size: 10Gi
     storageClass: ""
+    allowVolumeExpansion: false
     existingClaim: ""
 
 api:
@@ -190,6 +191,7 @@ apm:
 ingress:
   enabled: true
   className: "nginx"
+  sslRedirect: true
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
   hosts:
@@ -198,7 +200,7 @@ ingress:
         - path: /
           pathType: ImplementationSpecific
   tls:
-    - secretId: kubesight-tls
+    - secretName: kubesight-tls
       hosts:
         - kubesight.example.com
 

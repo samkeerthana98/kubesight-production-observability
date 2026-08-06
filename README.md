@@ -194,22 +194,30 @@ helm install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
   --set grafana.sidecar.dashboards.enabled=true \
   --set grafana.sidecar.dashboards.label=grafana_dashboard
 
-# 3. Deploy KubeSight (dev)
+# 3. Deploy KubeSight on Kind (HTTP, no TLS redirect)
 helm install kubesight ./kubesight-chart \
   --namespace kubesight --create-namespace \
-  -f ./kubesight-chart/values-dev.yaml
+  -f ./kubesight-chart/values-kind.yaml
+
+# If the release already exists, upgrade instead
+helm upgrade kubesight ./kubesight-chart \
+  --namespace kubesight \
+  -f ./kubesight-chart/values-kind.yaml
 
 # 4. Verify
 kubectl get pods -n kubesight
 helm test kubesight -n kubesight
 
 # 5. Access services
-kubectl port-forward svc/kubesight-frontend 5001:5000 -n kubesight
 kubectl port-forward svc/kube-prometheus-stack-grafana 3000:80 -n monitoring
 kubectl port-forward svc/kube-prometheus-stack-prometheus 9090:9090 -n monitoring
 ```
 
 Grafana: http://localhost:3000 — `admin / prom-operator`
+
+For local Kind ingress testing, map `kubesight.example.com` to `127.0.0.1` in your hosts file and access the app over HTTP. The `values-kind.yaml` file intentionally disables ingress TLS and `ssl-redirect` so local requests do not get redirected to HTTPS.
+
+If you previously deployed the release with autoscaling enabled, delete the old HPA resources or reinstall the release before switching to `values-kind.yaml`. Existing Redis PVCs may also prevent changing the requested storage size during upgrade if the underlying StorageClass does not support expansion.
 
 ---
 

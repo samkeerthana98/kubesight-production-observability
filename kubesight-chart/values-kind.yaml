@@ -1,0 +1,26 @@
+# Kind/local values for kubesight chart
+# Use this file for local HTTP testing with ingress-nginx on Kind.
+
+replicaCount: 1
+
+autoscaling:
+  enabled: false
+
+common:
+  VERBOSE: "true"
+  VERSION: "1.0.0-kind"
+  COMMIT_SHA: "local"
+  ENVIRONMENT: "kind"
+
+ingress:
+  enabled: true
+  className: "nginx"
+  sslRedirect: false
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+  hosts:
+    - host: kubesight.example.com
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []

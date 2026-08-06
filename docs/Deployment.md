@@ -91,15 +91,30 @@ kind load docker-image kubesight/frontend:latest --name kubesight
 
 ### Step 4 – Deploy KubeSight
 
-#### Development Deployment
+#### Kind / Local Ingress Deployment (HTTP)
 
 ```bash
 helm install kubesight ./kubesight-chart \
   --namespace kubesight \
   --create-namespace \
-  -f ./kubesight-chart/values-dev.yaml \
+  -f ./kubesight-chart/values-kind.yaml \
   --wait
 ```
+
+If the release already exists:
+
+```bash
+helm upgrade kubesight ./kubesight-chart \
+  --namespace kubesight \
+  -f ./kubesight-chart/values-kind.yaml \
+  --wait
+```
+
+This values file is intended for local Kind usage with ingress-nginx over plain HTTP. It enables ingress, leaves `tls` empty, and sets `nginx.ingress.kubernetes.io/ssl-redirect: "false"` so requests to `http://kubesight.example.com` are not redirected to HTTPS.
+
+Add a hosts entry pointing `kubesight.example.com` to `127.0.0.1` before testing in the browser.
+
+If you are switching an existing release from the production profile to the Kind profile, remove the existing HPA resources first or perform a clean reinstall. Also note that changing Redis PVC size during upgrade may fail on clusters where the existing claim or StorageClass does not support volume expansion.
 
 #### Production Deployment
 
@@ -110,6 +125,8 @@ helm install kubesight ./kubesight-chart \
   -f ./kubesight-chart/values-production.yaml \
   --wait
 ```
+
+The production values file keeps TLS enabled on the Ingress and sets `nginx.ingress.kubernetes.io/ssl-redirect: "true"`, which is appropriate for real environments with a configured TLS secret.
 
 ### Step 5 – Verify Deployment
 
@@ -157,7 +174,8 @@ kubectl port-forward svc/kube-prometheus-stack-alertmanager 9093:9093 -n monitor
 
 | Service | URL | Credentials |
 |---|---|---|
-| Frontend | http://localhost:5001 | – |
+| Frontend (port-forward) | http://localhost:5001 | – |
+| Frontend (Kind ingress) | http://kubesight.example.com | – |
 | API | http://localhost:5000 | – |
 | Grafana | http://localhost:3000 | admin / prom-operator |
 | Prometheus | http://localhost:9090 | – |

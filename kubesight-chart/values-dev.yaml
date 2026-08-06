@@ -103,6 +103,7 @@ redis:
     enabled: true
     size: 1Gi
     storageClass: ""
+    allowVolumeExpansion: false
     existingClaim: ""
 
 api:
