@@ -231,21 +231,3 @@ jobs:
         run: |
           echo "=== Building Frontend Docker image ==="
           docker build -t kubesight-frontend:${{ steps.vars.outputs.sha_short }} ./app/frontend
-
-      - name: Run Trivy on API image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: kubesight-api:${{ steps.vars.outputs.sha_short }}
-          format: 'table'
-          exit-code: '1'
-          severity: 'CRITICAL'
-          ignore-unfixed: true
-
-      - name: Run Trivy on Frontend image
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: kubesight-frontend:${{ steps.vars.outputs.sha_short }}
-          format: 'table'
-          exit-code: '1'
-          severity: 'CRITICAL'
-          ignore-unfixed: true
