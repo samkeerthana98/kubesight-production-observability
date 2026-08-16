@@ -1,12 +1,5 @@
 FROM python:3.10.15-slim
 
-# Run security updates and clean up
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 # Create a non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
