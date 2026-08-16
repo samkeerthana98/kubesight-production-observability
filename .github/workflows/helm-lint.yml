@@ -65,10 +65,14 @@ jobs:
         with:
           version: '3.14.0'
 
+      - name: Install Helm Unit Test Plugin
+        run: |
+          helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
+
       - name: Run Helm Unit Tests
-        uses: helm-unittest/helm-unittest-action@v0.2.9
-        with:
-          chart: './kubesight-chart'
+        run: |
+          echo "=== Running helm unit tests ==="
+          helm unittest ./kubesight-chart
 
   helm-template:
     name: Helm Template Validation
@@ -184,7 +188,6 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
-        continue-on-error: true
 
   gitleaks:
     name: Gitleaks Secret Detection
