@@ -1,4 +1,4 @@
-name: Helm Lint & Validate
+name: CI/CD Pipeline
 
 on:
   push:
@@ -202,3 +202,48 @@ jobs:
         run: |
           echo "=== Running kubesec security validation ==="
           kubesec scan /tmp/production-manifests.yaml || echo "Kubesec scan completed with warnings (non-blocking)"
+
+  docker-build:
+    name: Docker Build & Image Security
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Git commit SHA
+        id: vars
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "sha_full=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build API Docker image
+        run: |
+          echo "=== Building API Docker image ==="
+          docker build -t kubesight-api:${{ steps.vars.outputs.sha_short }} ./app/api
+
+      - name: Build Frontend Docker image
+        run: |
+          echo "=== Building Frontend Docker image ==="
+          docker build -t kubesight-frontend:${{ steps.vars.outputs.sha_short }} ./app/frontend
+
+      - name: Run Trivy on API image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: kubesight-api:${{ steps.vars.outputs.sha_short }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Run Trivy on Frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: kubesight-frontend:${{ steps.vars.outputs.sha_short }}
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
