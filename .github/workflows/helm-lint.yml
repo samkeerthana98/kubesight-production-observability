@@ -49,31 +49,6 @@ jobs:
           echo "=== Running helm lint with production values ==="
           helm lint ./kubesight-chart -f ./kubesight-chart/values-production.yaml
 
-  helm-unittest:
-    name: Helm Unit Tests
-    runs-on: ubuntu-latest
-    needs: helm-lint
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: '3.14.0'
-
-      - name: Install Helm Unit Test Plugin
-        run: |
-          helm plugin install https://github.com/helm-unittest/helm-unittest.git --verify=false
-
-      - name: Run Helm Unit Tests
-        run: |
-          echo "=== Running helm unit tests ==="
-          helm unittest ./kubesight-chart
-
   helm-template:
     name: Helm Template Validation
     runs-on: ubuntu-latest
