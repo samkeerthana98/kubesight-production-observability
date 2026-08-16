@@ -233,6 +233,8 @@ jobs:
           docker build -t kubesight-frontend:${{ steps.vars.outputs.sha_short }} ./app/frontend
 
       - name: Run Trivy on API image
+        id: trivy-api
+        continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: kubesight-api:${{ steps.vars.outputs.sha_short }}
@@ -242,6 +244,8 @@ jobs:
           ignore-unfixed: true
 
       - name: Run Trivy on Frontend image
+        id: trivy-frontend
+        continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: kubesight-frontend:${{ steps.vars.outputs.sha_short }}
@@ -249,3 +253,15 @@ jobs:
           exit-code: '1'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+
+      - name: Check Trivy results
+        if: steps.trivy-api.outcome == 'failure' || steps.trivy-frontend.outcome == 'failure'
+        run: |
+          echo "Trivy scan failed on one or more images"
+          if [ "${{ steps.trivy-api.outcome }}" == "failure" ]; then
+            echo "API image has CRITICAL/HIGH vulnerabilities"
+          fi
+          if [ "${{ steps.trivy-frontend.outcome }}" == "failure" ]; then
+            echo "Frontend image has CRITICAL/HIGH vulnerabilities"
+          fi
+          exit 1
