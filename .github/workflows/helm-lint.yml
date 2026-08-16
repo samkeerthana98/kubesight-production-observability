@@ -238,7 +238,8 @@ jobs:
           image-ref: kubesight-api:${{ steps.vars.outputs.sha_short }}
           format: 'table'
           exit-code: '1'
-          severity: 'CRITICAL'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
 
       - name: Run Trivy on Frontend image
         uses: aquasecurity/trivy-action@master
@@ -246,4 +247,5 @@ jobs:
           image-ref: kubesight-frontend:${{ steps.vars.outputs.sha_short }}
           format: 'table'
           exit-code: '1'
-          severity: 'CRITICAL'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
