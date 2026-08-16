@@ -1,4 +1,4 @@
-FROM python:3.12.3-slim
+FROM python:3.12.4-slim
 
 # Create a non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
