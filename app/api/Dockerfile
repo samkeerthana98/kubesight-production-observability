@@ -1,4 +1,7 @@
-FROM python:3.11.11-slim
+FROM python:3.11-slim
+
+# Update OS packages to fix security vulnerabilities
+RUN apt-get update && apt-get upgrade -y && apt-get clean
 
 # Create a non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
@@ -11,6 +14,9 @@ COPY requirements.txt .
 
 # Install any dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Upgrade setuptools and wheel to fix security vulnerabilities
+RUN pip install --no-cache-dir --upgrade 'setuptools>=78.1.1' 'wheel>=0.46.2'
 
 # Copy the current directory contents into the container at /app
 COPY . .
@@ -25,7 +31,7 @@ USER appuser
 EXPOSE 5000
 
 # Define environment variable
-ENV NAME KubeSightAPI
+ENV NAME=KubeSightAPI
 
 # Run gunicorn when the container launches
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
