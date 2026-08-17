@@ -96,15 +96,15 @@ Both services propagate `X-Request-ID` headers to enable tracing requests across
 ## Dependencies Explained
 
 ### Frontend Requirements (`frontend/requirements.txt`)
-- `Flask==2.3.3`: Web framework
-- `requests==2.31.0`: HTTP client for calling the API service
-- `prometheus_client==0.19.0`: For exposing Prometheus metrics
+- `Flask==3.0.3`: Web framework
+- `requests==2.32.3`: HTTP client for calling the API service
+- `prometheus_client==0.21.0`: For exposing Prometheus metrics
 - (Gunicorn is used in Dockerfile but not in requirements as it's installed via pip in Dockerfile)
 
 ### API Requirements (`api/requirements.txt`)
-- `Flask==2.3.3`: Web framework
-- `prometheus_client==0.19.0`: For exposing Prometheus metrics
-- `redis==5.0.1`: Redis Python client
+- `Flask==3.0.3`: Web framework
+- `prometheus_client==0.21.0`: For exposing Prometheus metrics
+- `redis==5.2.0`: Redis Python client
 - (Gunicorn is used in Dockerfile but not in requirements as it's installed via pip in Dockerfile)
 
 ## How Services Communicate
@@ -156,12 +156,15 @@ docker-compose up
 
 ## Dockerfile Details
 
-Both services use multi-stage Dockerfiles optimized for production:
-- Base image: `python:3.11-slim` (minimal footprint)
-- Non-root user: Runs as `appuser` for security
+Both services use Dockerfiles optimized for production with comprehensive security measures:
+- Base image: `python:3.11-slim` (minimal footprint, latest stable)
+- OS security updates: Automated `apt-get update && apt-get upgrade -y` during build
+- Non-root user: Runs as `appuser` (UID 1000) for security
+- Security dependencies: Upgraded setuptools (>=78.1.1) and wheel (>=0.46.2)
 - Dependency installation: Uses `--no-cache-dir` to minimize image size
 - Port exposure: Exposes port 5000
-- Process management: Uses Gunicorn with 2 workers for production readiness
+- Process management: Uses Gunicorn for production readiness
+- Security scanning: Trivy HIGH/CRITICAL vulnerability scanning in CI/CD
 
 ## Docker Compose Overview
 
